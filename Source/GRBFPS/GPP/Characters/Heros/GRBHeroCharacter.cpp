@@ -20,8 +20,14 @@ void AGRBHeroCharacter::PossessedBy(AController* NewController)
 	Super::PossessedBy(NewController);
 }
 
-bool AGRBHeroCharacter::IsInFirstPersonPerspective() const
+void AGRBHeroCharacter::KnockDown()
 {
+}
 
-	return false;
+void AGRBHeroCharacter::PlayKnockDownEffects()
+{
+}
+
+void AGRBHeroCharacter::PlayReviveEffects()
+{
 }

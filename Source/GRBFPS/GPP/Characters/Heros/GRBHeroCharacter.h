@@ -34,25 +34,7 @@ public:
 	
 	virtual void PlayReviveEffects();
 	
-	UFUNCTION(BlueprintCallable, Category = "GASShooter|GSHeroCharacter")
-	virtual bool IsInFirstPersonPerspective() const;
-	
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
-	USkeletalMeshComponent* GetFirstPersonMesh() const;
-
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
-	USkeletalMeshComponent* GetThirdPersonMesh() const;
-	
 #pragma region ~ 一些对外界可调用的接口 ~
-	
-public:
-	//
-	UFUNCTION(BlueprintCallable, Category = "GASShooter|GSHeroCharacter")
-	virtual bool IsInFirstPersonPerspective() const;
-	
-protected:
-
-private:
 	
 #pragma endregion ~ 一些对外界可调用的接口 ~
 
