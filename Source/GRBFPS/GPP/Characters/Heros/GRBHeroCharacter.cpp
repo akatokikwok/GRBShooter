@@ -4,3 +4,24 @@ AGRBHeroCharacter::AGRBHeroCharacter(const FObjectInitializer& ObjectInitializer
 	: Super(ObjectInitializer)
 {
 }
+
+void AGRBHeroCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+}
+
+void AGRBHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+}
+
+void AGRBHeroCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+}
+
+bool AGRBHeroCharacter::IsInFirstPersonPerspective() const
+{
+
+	return false;
+}

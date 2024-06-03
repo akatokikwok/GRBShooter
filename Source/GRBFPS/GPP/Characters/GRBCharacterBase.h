@@ -10,6 +10,9 @@
 
 class UGRBAbilitySystemComponent;
 
+/***/
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCharacterDiedDelegate, AGRBCharacterBase*, ParamCharacter);
+
 UCLASS()
 class AGRBCharacterBase : public ACharacter, public IAbilitySystemInterface
 {
