@@ -22,7 +22,12 @@ class AGRBCharacterBase : public ACharacter, public IAbilitySystemInterface
 public:
 	AGRBCharacterBase(const FObjectInitializer& ObjectInitializer);
 	virtual void BeginPlay() override;
+	/** 仅在服务端才会调用; 调用顺序在函数 Server's AcknowledgePossession之前. */
+	virtual void PossessedBy(AController* NewController) override;
 
+	/** 处理输入回调的入口. */
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	
 	// ~ Begin Implement IAbilitySystemInterface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	// ~ End Implement IAbilitySystemInterface
@@ -84,7 +89,7 @@ protected:
 	// AS的网络复制并不是很重要, 因为在服务端和在客户端它应该都是一致相同的
 	virtual void InitializeAttributes();
 
-	//
+	// 处理Respawn的BUFF和一组英雄固有携带的BUFF组
 	virtual void AddStartupEffects();
 
 	// 一些AS属性的Setters, 仅在一些特殊案例下会被使用，如重生； 否则更合理的手段我推荐是使用GE去修改.
@@ -108,6 +113,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "GASShooter|Abilities")
 	TArray<TSubclassOf<class UGRBGameplayAbility>> CharacterAbilities;
 
+	// 给1个Pawn在 spawn/respawn 时机下会执行的默认属性GE; 瞬发的GE.
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "GASShooter|Abilities")
+	TSubclassOf<class UGameplayEffect> DefaultAttributes;
+
+	// 仅在英雄的初始阶段才会应用一次.
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "GASShooter|Abilities")
+	TArray<TSubclassOf<class UGameplayEffect>> StartupEffects;
+	
 	// 英雄死亡时候会携带的死亡标签
 	FGameplayTag DeadTag;
 

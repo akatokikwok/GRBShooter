@@ -13,6 +13,23 @@ void AGRBCharacterBase::BeginPlay()
 	Super::BeginPlay();
 }
 
+void AGRBCharacterBase::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	
+	InitializeAttributes();
+
+	AddStartupEffects();
+
+	AddCharacterAbilities();
+	
+}
+
+void AGRBCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+}
+
 UAbilitySystemComponent* AGRBCharacterBase::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
@@ -155,14 +172,52 @@ void AGRBCharacterBase::AddCharacterAbilities()
 	AbilitySystemComponent->bCharacterAbilitiesGiven = true;
 }
 
+/** 巧妙借助1个BUFF处理且初始化英雄固有携带的AS. */
 void AGRBCharacterBase::InitializeAttributes()
 {
-	
+	if (!IsValid(AbilitySystemComponent))
+	{
+		return;
+	}
+
+	// 未配置人物默认的用于重生的GE.
+	if (!DefaultAttributes)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s() Missing DefaultAttributes for %s. Please fill in the character's Blueprint."), *FString(__FUNCTION__), *GetName());
+		return;
+	}
+
+	// 使用ASC的MakeEffectContext接口组1个BUFF-Context, 并设置这个BUFF的源OBJ是英雄基类.(客户端和服务端都会执行)
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+	EffectContext.AddSourceObject(this);
+	// 利用BUFF-Context构建并应用真正的BUFF(即这个RespawnBuff)
+	FGameplayEffectSpecHandle NewHandle = AbilitySystemComponent->MakeOutgoingSpec(DefaultAttributes, GetCharacterLevel(), EffectContext);
+	if (NewHandle.IsValid())
+	{
+		FActiveGameplayEffectHandle ActiveGEHandle = AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*NewHandle.Data.Get());
+	}
 }
 
+// 处理Respawn的BUFF和一组英雄固有携带的BUFF组
 void AGRBCharacterBase::AddStartupEffects()
 {
-	
+	// 仅承认服务端并检查反复授权初始BUFF.
+	if (GetLocalRole() != ROLE_Authority || !IsValid(AbilitySystemComponent) || AbilitySystemComponent->bStartupEffectsApplied)
+	{
+		return;
+	}
+	// 为英雄身上固有携带的BUFF组配置并应用这些BUFF到自身.
+	FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
+	EffectContext.AddSourceObject(this);
+	for (TSubclassOf<UGameplayEffect> GameplayEffect : StartupEffects)
+	{
+		FGameplayEffectSpecHandle NewHandle = AbilitySystemComponent->MakeOutgoingSpec(GameplayEffect, GetCharacterLevel(), EffectContext);
+		if (NewHandle.IsValid())
+		{
+			FActiveGameplayEffectHandle ActiveGEHandle = AbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*NewHandle.Data.Get(), AbilitySystemComponent);
+		}
+	}
+	AbilitySystemComponent->bStartupEffectsApplied = true;
 }
 
 void AGRBCharacterBase::SetHealth(float Health)

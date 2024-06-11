@@ -27,4 +27,7 @@ public:
 public:
 	// GRB-ASC 已授权状态 (预防反复授权)
 	bool bCharacterAbilitiesGiven = false;
+
+	// 检查初始BUFF是否反复授权.
+	bool bStartupEffectsApplied = false;
 };
