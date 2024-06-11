@@ -23,4 +23,8 @@ public:
 	virtual void InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor) override;
 	virtual void NotifyAbilityEnded(FGameplayAbilitySpecHandle Handle, UGameplayAbility* Ability, bool bWasCancelled) override;
 	// ~ From UAbilitySystemComponent Virtual Function
+
+public:
+	// GRB-ASC 已授权状态 (预防反复授权)
+	bool bCharacterAbilitiesGiven = false;
 };

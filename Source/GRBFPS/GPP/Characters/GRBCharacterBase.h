@@ -21,11 +21,80 @@ class AGRBCharacterBase : public ACharacter, public IAbilitySystemInterface
 
 public:
 	AGRBCharacterBase(const FObjectInitializer& ObjectInitializer);
+	virtual void BeginPlay() override;
 
 	// ~ Begin Implement IAbilitySystemInterface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	// ~ End Implement IAbilitySystemInterface
 
+public:
+	// Switch on AbilityID to return individual ability levels.
+	UFUNCTION(BlueprintCallable, Category = "GASShooter|GSCharacter")
+	virtual int32 GetAbilityLevel(EGRBAbilityInputID AbilityID) const;
+	
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase")
+	virtual bool IsAlive() const;
+	
+	virtual void Die();
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase")
+	virtual void FinishDying();
+
+public:
+	//  一些AS属性的Getters.
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	int32 GetCharacterLevel() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetHealth() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMaxHealth() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMana() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMaxMana() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetStamina() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMaxStamina() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetShield() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMaxShield() const;
+	
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMoveSpeed() const;
+
+	// 注意这里是拿取的AS-移速里的BaseValue.
+	UFUNCTION(BlueprintCallable, Category = "GRBFPS|GRBCharacterBase|Attributes")
+	float GetMoveSpeedBaseValue() const;
+	
+protected:
+	// 在服务端授权技能, 并且GA-Hanle会被网络复制到所属客户端
+	virtual void AddCharacterAbilities();
+
+	// 初始化英雄的AS, 仅承认运行在服务端, 但是此工程亦会运行在服务端.
+	// AS的网络复制并不是很重要, 因为在服务端和在客户端它应该都是一致相同的
+	virtual void InitializeAttributes();
+
+	//
+	virtual void AddStartupEffects();
+
+	// 一些AS属性的Setters, 仅在一些特殊案例下会被使用，如重生； 否则更合理的手段我推荐是使用GE去修改.
+	// 这些Setters仅修改AS的 BaseValue.
+	virtual void SetHealth(float Health);
+	virtual void SetMana(float Mana);
+	virtual void SetStamina(float Stamina);
+	virtual void SetShield(float Shield);
+
+	
 protected:
 	// 携带的ASC组件
 	UPROPERTY()
@@ -35,6 +104,10 @@ protected:
 	UPROPERTY()
 	UGRBAttributeSetBase* AttributeSetBase;
 	
+	// 英雄固有携带的技能组，英雄死亡时会被移除，且会重新授权当英雄重生后.
+	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "GASShooter|Abilities")
+	TArray<TSubclassOf<class UGRBGameplayAbility>> CharacterAbilities;
+
 	// 英雄死亡时候会携带的死亡标签
 	FGameplayTag DeadTag;
 
