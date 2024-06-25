@@ -6,6 +6,9 @@
 #include "GRBFPS/GPP/Characters/Abilities/GRBInteractable.h"
 #include "GRBHeroCharacter.generated.h"
 
+/**
+ * 真正使用的HeroCharacter
+ */
 UCLASS()
 class AGRBHeroCharacter : public AGRBCharacterBase, public IGRBInteractable
 {
@@ -15,11 +18,11 @@ public:
 	AGRBHeroCharacter(const FObjectInitializer& ObjectInitializer);
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	
-	// ~Begin ACharacter::SetupPlayerInputComponent
+	// ~Begin ACharacter::SetupPlayerInputComponent /** 处理输入回调的入口. */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	// ~End ACharacter::SetupPlayerInputComponent
 
-	// ~Begin ACharacter::PossessedBy
+	// ~Begin ACharacter::PossessedBy //** 仅在服务端才会调用; 调用顺序在函数 Server's AcknowledgePossession之前. */
 	virtual void PossessedBy(AController* NewController) override;
 	// ~End ACharacter::PossessedBy
 

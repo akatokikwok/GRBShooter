@@ -1,11 +1,12 @@
 #include "GRBCharacterBase.h"
+
+#include "GRBCharacterMovementComponent.h"
 #include "Abilities/GRBAbilitySystemComponent.h"
 #include "Abilities/GRBGameplayAbility.h"
 
 AGRBCharacterBase::AGRBCharacterBase(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UGRBCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))// 初始化项目定制的移动组件, UGRBCharacterMovementComponent型
 {
-	
 }
 
 void AGRBCharacterBase::BeginPlay()
@@ -16,13 +17,12 @@ void AGRBCharacterBase::BeginPlay()
 void AGRBCharacterBase::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
-	
-	InitializeAttributes();
 
-	AddStartupEffects();
-
-	AddCharacterAbilities();
-	
+	// InitializeAttributes();
+	//
+	// AddStartupEffects();
+	//
+	// AddCharacterAbilities();
 }
 
 void AGRBCharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -47,7 +47,6 @@ bool AGRBCharacterBase::IsAlive() const
 
 void AGRBCharacterBase::Die()
 {
-	
 }
 
 void AGRBCharacterBase::FinishDying()
@@ -222,20 +221,16 @@ void AGRBCharacterBase::AddStartupEffects()
 
 void AGRBCharacterBase::SetHealth(float Health)
 {
-	
 }
 
 void AGRBCharacterBase::SetMana(float Mana)
 {
-	
 }
 
 void AGRBCharacterBase::SetStamina(float Stamina)
 {
-	
 }
 
 void AGRBCharacterBase::SetShield(float Shield)
 {
-	
 }
