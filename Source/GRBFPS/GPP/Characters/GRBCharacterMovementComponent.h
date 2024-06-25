@@ -21,20 +21,36 @@ private:
 	public:
 		typedef FSavedMove_Character Super;
 
-		///@brief Resets all saved variables.
+		///@brief Resets all saved variables. 复位所有的移动队列内的标识符与属性
 		virtual void Clear() override;
 
-		///@brief Store input commands in the compressed flaGRB.
+		///@brief Store input commands in the compressed flags.
+		/** 作用是获取当前移动数据的压缩标志。这些压缩标志决定了在网络传输时,移动数据中的各个字段将采用何种压缩方式。合理的压缩策略可以显著降低网络带宽的占用*/
 		virtual uint8 GetCompressedFlags() const override;
 
 		///@brief This is used to check whether or not two moves can be combined into one.
 		///Basically you just check to make sure that the saved variables are the same.
+		/**
+		 * 作用是判断当前的移动数据是否可以与另一个移动数据合并。该函数通常在客户端发送移动数据给服务器之前被调用,用于减少网络带宽的消耗
+		 */
 		virtual bool CanCombineWith(const FSavedMovePtr& NewMove, ACharacter* Character, float MaxDelta) const override;
 
-		///@brief Sets up the move before sending it to the server. 
+		///@brief Sets up the move before sending it to the server.
+		/**
+		 * 作用是在客户端应用服务器发送回来的网络校正数据。具体来说,它会根据校正数据调整客户端角色的位置、旋转和速度,以使其与服务器端的模拟结果保持一致
+		 * 这个过程通常会配合平滑校正功能一起使用,以避免校正时出现突兀的位移或旋转
+		 * SetMoveFor 函数只是应用了网络校正数据,实际的模拟过程仍然需要由 UCharacterMovementComponent 中的其他函数来执行。不过,正确地应用校正数据是保证后续模拟结果与服务器保持一致的关键步骤
+		 */
 		virtual void SetMoveFor(ACharacter* Character, float InDeltaTime, FVector const& NewAccel, class FNetworkPredictionData_Client_Character& ClientData) override;
 		
 		///@brief Sets variables on character movement component before making a predictive correction.
+		/**
+		 * 作用是准备好这个保存的移动数据,使其可以在服务器端被重放和模拟。这个函数通常在服务器接收到客户端发送的移动数据后被调用
+		 * 通过 PrepMoveFor 函数的执行,服务器就可以基于从客户端接收到的移动数据,准确地重现客户端的运动状态和输入。服务器会利用这些准备好的数据进行模拟和重放,并与客户端的预测结果进行比较,从而确定是否需要发送校正数据给客户端
+		 * PrepMoveFor 函数只是完成了移动数据的准备工作,实际的模拟过程需要由 UCharacterMovementComponent 中的其他函数来执行
+		 * 正确地准备好移动数据是保证模拟过程正确性的前提条件
+		 * PrepMoveFor 函数是 UE4 客户端网络预测系统中一个非常关键的环节,它为服务器端提供了可靠的输入数据和初始状态,从而支持了整个重放和校正的过程
+		 */
 		virtual void PrepMoveFor(class ACharacter* Character) override;
 
 		// 移动队列里会使用到的 标识符 Sprint
@@ -68,6 +84,9 @@ private:
 		typedef FNetworkPredictionData_Client_Character Super;
 
 		///@brief Allocates a new copy of our custom saved move
+		/**
+		 * 作用是为客户端角色分配一个新的移动数据结构 FSavedMove_Character。这个新的移动数据结构将被用于存储当前的输入和运动状态,并最终发送给服务器用于重放和校正
+		 */
 		virtual FSavedMovePtr AllocateNewMove() override;
 	};
 	
@@ -94,37 +113,47 @@ public:
 	 */
 	virtual class FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	
-	// Sprint
+	// 发送启用冲刺标识符 请求
 	UFUNCTION(BlueprintCallable, Category = "Sprint")
 	void StartSprinting();
 
+	// 终止发送启用冲刺标识符 请求
 	UFUNCTION(BlueprintCallable, Category = "Sprint")
 	void StopSprinting();
 
-	// Aim Down Sights
+	// 发送ADS瞄准标识符 请求
 	UFUNCTION(BlueprintCallable, Category = "Aim Down Sights")
 	void StartAimDownSights();
 
+	// 终止发送ADS瞄准 标识符请求
 	UFUNCTION(BlueprintCallable, Category = "Aim Down Sights")
 	void StopAimDownSights();
 	
 public:
+	// 冲刺情形下会影响移速的倍率
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speed")
 	float SprintSpeedMultiplier;
 
+	// ADS瞄准下情形下会影响移速的倍率
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speed")
 	float ADSSpeedMultiplier;
 
+	// 被击倒情形下会影响移速的倍率
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speed")
 	float KnockedDownSpeedMultiplier;
 
+	// 移动组件标识符: 是否启用冲刺
 	uint8 RequestToStartSprinting : 1;
-	
+
+	// 移动组件标识符: 是否开启ADS瞄准
 	uint8 RequestToStartADS : 1;
 
+	// 玩家身上会携带的被击倒Tag
 	FGameplayTag KnockedDownTag;
-	
+
+	// 玩家身上会携带的 交互中Tag
 	FGameplayTag InteractingTag;
-	
+
+	// 玩家身上会携带的 交互完成Tag
 	FGameplayTag InteractingRemovalTag;
 };
