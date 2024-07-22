@@ -26,27 +26,28 @@ float UGRBCharacterMovementComponent::GetMaxSpeed() const
 		return Super::GetMaxSpeed();
 	}
 
+	// 玩家死亡不允许移动
 	if (!Owner->IsAlive())
 	{
 		return 0.0f;
 	}
 
-	// Don't move while interacting or being interacted on (revived)
+	// 被治疗或者在交互中，不允许移动
 	if (Owner->GetAbilitySystemComponent() && Owner->GetAbilitySystemComponent()->GetTagCount(InteractingTag) > Owner->GetAbilitySystemComponent()->GetTagCount(InteractingRemovalTag))
 	{
 		return 0.0f;
 	}
-
+	// 玩家被击倒
 	if (Owner->GetAbilitySystemComponent() && Owner->GetAbilitySystemComponent()->HasMatchingGameplayTag(KnockedDownTag))
 	{
 		return Owner->GetMoveSpeed() * KnockedDownSpeedMultiplier;
 	}
-
+	// 玩家收到冲刺输入, 有倍率
 	if (RequestToStartSprinting)
 	{
 		return Owner->GetMoveSpeed() * SprintSpeedMultiplier;
 	}
-
+	// 玩家收到ADS输入, 有倍率
 	if (RequestToStartADS)
 	{
 		return Owner->GetMoveSpeed() * ADSSpeedMultiplier;

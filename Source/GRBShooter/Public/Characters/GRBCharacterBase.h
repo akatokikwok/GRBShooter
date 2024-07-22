@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
 #include "GameplayTagContainer.h"
@@ -36,5 +35,50 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter")
 	virtual bool IsAlive() const;
+
 	
+#pragma region ~ 类对外的接口
+public:
+	/**
+	* Getters for attributes from GRBAttributeSetBase
+	**/
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	int32 GetCharacterLevel() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetHealth() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMaxHealth() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMana() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMaxMana() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetStamina() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMaxStamina() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetShield() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMaxShield() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMoveSpeed() const;
+	UFUNCTION(BlueprintCallable, Category = "GRBShooter|GRBCharacter|Attributes")
+	float GetMoveSpeedBaseValue() const;
+
+	
+	/**
+	* Setters for Attributes. Only use these in special cases like Respawning, otherwise use a GE to change Attributes.
+	* These change the Attribute's Base Value.
+	*/
+	virtual void SetHealth(float Health);
+	virtual void SetMana(float Mana);
+	virtual void SetStamina(float Stamina);
+	virtual void SetShield(float Shield);
+#pragma endregion
+
+
+protected:
+	// Reference to the AttributeSetBase. It will live on the PlayerState or here if the character doesn't have a PlayerState.
+	UPROPERTY()
+	class UGRBAttributeSetBase* AttributeSetBase = nullptr;
 };
