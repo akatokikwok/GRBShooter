@@ -79,48 +79,29 @@ class GRBSHOOTER_API UGRBAbilitySystemComponent : public UAbilitySystemComponent
 
 public:
 	UGRBAbilitySystemComponent();
-
-	// ~Start Implements ActorComponent::GetLifetimeReplicatedProps
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	// ~End Implements
-
-	// ~Start Implements UGameplayTasksComponent::GetShouldTick
 	virtual bool GetShouldTick() const override;
-	// ~End Implements
-
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
-	// ~Start Implements UAbilitySystemComponent::InitAbilityActorInfo
 	/** 用于初始化与特定角色和控制器相关联的能力信息。该方法通常在角色初始化完成、或者需要手动初始化能力信息时调用，以确保能力系统正确地关联到游戏角色和控制器.*/
 	virtual void InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor) override;
-	// ~End Implements
-
-	// ~Start Implements UAbilitySystemComponent::NotifyAbilityEnded 
 	/** 在一个能力（Ability）结束时调用，用于通知系统该能力已经完成、取消或中止。通过这一通知，系统可以进行一些清理工作、触发回调.*/
 	virtual void NotifyAbilityEnded(FGameplayAbilitySpecHandle Handle, UGameplayAbility* Ability, bool bWasCancelled) override;
-	// ~End Implements
-
-	// Version of function in AbilitySystemGlobals that returns correct type
-	/** 从 Actor 获取能力系统组件：该方法用来快速获取一个 Actor 的能力系统组件，无需手动遍历 Actor 的组件.*/
-	static UGRBAbilitySystemComponent* GetAbilitySystemComponentFromActor(const AActor* Actor, bool LookForComponent = false);
-
-	// ~Start Implements UAbilitySystemComponent::AbilityLocalInputPressed
 	/** 0.主要功能是响应本地输入,
 	 * 1.并尝试激活对应的游戏能力; 检查输入绑定：根据 InputID 查找是否有与之关联的能力。
 	 * 2.尝试激活能力：如果找到绑定的能力，尝试激活它。这涉及检查能力是否满足激活条件，诸如冷却时间是否完成、资源是否充足等。
 	 * 3.调试信息：输出和记录输入相关的调试信息
 	 */
 	virtual void AbilityLocalInputPressed(int32 InputID) override;
-	// ~End Implements
+	// 决定了是否应该批处理来自客户端的 RPC 请求，将多个请求合并成一个，以减少网络通信的开销。在多人游戏中，这种优化非常重要，可以显著减少网络延迟和带宽使用; Turn on RPC batching in ASC. Off by default.
+	virtual bool ShouldDoServerAbilityRPCBatch() const override;
+
+	// Version of function in AbilitySystemGlobals that returns correct type
+	/** 从 Actor 获取能力系统组件：该方法用来快速获取一个 Actor 的能力系统组件，无需手动遍历 Actor 的组件.*/
+	static UGRBAbilitySystemComponent* GetAbilitySystemComponentFromActor(const AActor* Actor, bool LookForComponent = false);
 
 	/** 获取特定类型GA的技能句柄.*/
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Abilities")
 	FGameplayAbilitySpecHandle FindAbilitySpecHandleForClass(TSubclassOf<UGameplayAbility> AbilityClass, UObject* OptionalSourceObject = nullptr);
-
-	// 决定了是否应该批处理来自客户端的 RPC 请求，将多个请求合并成一个，以减少网络通信的开销。在多人游戏中，这种优化非常重要，可以显著减少网络延迟和带宽使用; Turn on RPC batching in ASC. Off by default.
-	// ~Start Implements UAbilitySystemComponent::ShouldDoServerAbilityRPCBatch
-	virtual bool ShouldDoServerAbilityRPCBatch() const override;
-	// ~End Implements
 
 	///@brief 采用一种思想:把同一帧内的所有RPC合批, 最佳情况是，我们将 ActivateAbility、SendTargetData 和 EndAbility 批处理为一个 RPC，而不是三个
 	///@brief 最坏情况是，我们将 ActivateAbility 和 SendTargetData 批处理为一个 RPC，而不是两个，然后在单独的 RPC 中调用 EndAbility
@@ -161,49 +142,63 @@ public:
 	// Plays a montage without updating replication/prediction structures. Used by simulated proxies when replication tells them to play a montage.
 	virtual float PlayMontageSimulatedForMesh(USkeletalMeshComponent* InMesh, UAnimMontage* Montage, float InPlayRate, FName StartSectionName = NAME_None);
 
+	///--@brief 停播骨架关联的蒙太奇,--/
 	// Stops whatever montage is currently playing. Expectation is caller should only be stopping it if they are the current animating ability (or have good reason not to check)
 	virtual void CurrentMontageStopForMesh(USkeletalMeshComponent* InMesh, float OverrideBlendOutTime = -1.0f);
 
+	///--@brief 停播本地所有蒙太奇动画.--/
 	// Stops all montages currently playing
 	virtual void StopAllCurrentMontages(float OverrideBlendOutTime = -1.0f);
 
+	///--@brief 停掉指定骨架的指定蒙太奇播放.--/
 	// Stops current montage if it's the one given as the Montage param
 	virtual void StopMontageIfCurrentForMesh(USkeletalMeshComponent* InMesh, const UAnimMontage& Montage, float OverrideBlendOutTime = -1.0f);
 
+	///--@brief 给定1各技能, 复位其关联的本地蒙太奇数据.--/
 	// Clear the animating ability that is passed in, if it's still currently animating
 	virtual void ClearAnimatingAbilityForAllMeshes(UGameplayAbility* Ability);
 
+	///--@brief 把给定骨架的蒙太奇跳转至指定section播放, 在双端做到数据统一.--/
 	// Jumps current montage to given section. Expectation is caller should only be stopping it if they are the current animating ability (or have good reason not to check)
 	virtual void CurrentMontageJumpToSectionForMesh(USkeletalMeshComponent* InMesh, FName SectionName);
 
+	///--@brief 把给定骨架的蒙太奇设置下一个section, 并在双端做到数据统一.--/
 	// Sets current montages next section name. Expectation is caller should only be stopping it if they are the current animating ability (or have good reason not to check)
 	virtual void CurrentMontageSetNextSectionNameForMesh(USkeletalMeshComponent* InMesh, FName FromSectionName, FName ToSectionName);
 
+	///--@brief 把给定骨架的蒙太奇设置指定的播放速率, 并在双端做到数据统一.--/
 	// Sets current montage's play rate
 	virtual void CurrentMontageSetPlayRateForMesh(USkeletalMeshComponent* InMesh, float InPlayRate);
 
-	///--@brief 在本地蒙太奇包池子内查找 匹配给定动画技能的那个元素--/
+	///--@brief 校验给定的动画技能是否隶属于本地包体池子内的某个元素. --/
 	// Returns true if the passed in ability is the current animating ability
 	bool IsAnimatingAbilityForAnyMesh(UGameplayAbility* Ability) const;
 
+	///--@brief 在本地包体池子内提取出当前唯一一个合法的动画技能.--/
 	// Returns the current animating ability
 	UGameplayAbility* GetAnimatingAbilityFromAnyMesh();
 
+	///--@brief 收集本地包体池子内正在播放已激活的蒙太奇资产.--/
 	// Returns montages that are currently playing
 	TArray<UAnimMontage*> GetCurrentMontages() const;
 
+	///--@brief 拿取给定骨架正在播放的蒙太奇资产.--/
 	// Returns the montage that is playing for the mesh
 	UAnimMontage* GetCurrentMontageForMesh(USkeletalMeshComponent* InMesh);
 
+	///--@brief 拿取给定骨架本地动画正在播放的SectionID--/
 	// Get SectionID of currently playing AnimMontage
 	int32 GetCurrentMontageSectionIDForMesh(USkeletalMeshComponent* InMesh);
 
+	///--@brief 拿取给定骨架本地动画正在播放的Section资产名字--/
 	// Get SectionName of currently playing AnimMontage
 	FName GetCurrentMontageSectionNameForMesh(USkeletalMeshComponent* InMesh);
 
+	///--@brief 拿取指定骨架的正在播放的这段section总时长. --/
 	// Get length in time of current section
 	float GetCurrentMontageSectionLengthForMesh(USkeletalMeshComponent* InMesh);
 
+	///--@brief 拿取给定骨架的的section的剩余未播放时长.--/
 	// Returns amount of time left in current section
 	float GetCurrentMontageSectionTimeLeftForMesh(USkeletalMeshComponent* InMesh);
 
@@ -267,8 +262,9 @@ protected:
 	//---------------------------------------------------  ------------------------------------------------
 	//---------------------------------------------------  ------------------------------------------------
 	//---------------------------------------------------  ------------------------------------------------
-	
+
 #pragma region ~ 对外接口 ~
+
 public:
 	/** 获取在1个容器下某个Tag的出现次数*/
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Abilities", Meta = (DisplayName = "GetTagCount", ScriptName = "GetTagCount"))
@@ -305,8 +301,9 @@ public:
 
 	//---------------------------------------------------  ------------------------------------------------
 	//---------------------------------------------------  ------------------------------------------------
-	
+
 #pragma region ~ 字段 ~
+
 public:
 	// 是否授权技能
 	bool bCharacterAbilitiesGiven = false;

@@ -18,7 +18,6 @@ static TAutoConsoleVariable<float> CVarReplayMontageErrorThreshold(
 	TEXT("Tolerance level for when montage playback position correction occurs in replays")
 );
 
-
 UGRBAbilitySystemComponent::UGRBAbilitySystemComponent()
 {
 }
@@ -463,7 +462,26 @@ void UGRBAbilitySystemComponent::CurrentMontageStopForMesh(USkeletalMeshComponen
 	}
 }
 
-/** 复位清楚本地动画信息集内的技能和蒙太奇数据.*/
+///--@brief 停播本地所有蒙太奇动画.--/
+void UGRBAbilitySystemComponent::StopAllCurrentMontages(float OverrideBlendOutTime)
+{
+	for (const FGameplayAbilityLocalAnimMontageForMesh& GameplayAbilityLocalAnimMontageForMesh : LocalAnimMontageInfoForMeshes)
+	{
+		CurrentMontageStopForMesh(GameplayAbilityLocalAnimMontageForMesh.Mesh, OverrideBlendOutTime);
+	}
+}
+
+///--@brief 停掉指定骨架的指定蒙太奇播放.--/
+void UGRBAbilitySystemComponent::StopMontageIfCurrentForMesh(USkeletalMeshComponent* InMesh, const UAnimMontage& Montage, float OverrideBlendOutTime)
+{
+	FGameplayAbilityLocalAnimMontageForMesh& AnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+	if (&Montage == AnimMontageInfo.LocalMontageInfo.AnimMontage)
+	{
+		CurrentMontageStopForMesh(InMesh, OverrideBlendOutTime);
+	}
+}
+
+///--@brief 给定1各技能, 复位其关联的本地蒙太奇数据.--/
 void UGRBAbilitySystemComponent::ClearAnimatingAbilityForAllMeshes(UGameplayAbility* Ability)
 {
 	UGRBGameplayAbility* GRBAbility = Cast<UGRBGameplayAbility>(Ability);
@@ -477,11 +495,71 @@ void UGRBAbilitySystemComponent::ClearAnimatingAbilityForAllMeshes(UGameplayAbil
 	}
 }
 
+///--@brief 把给定骨架的蒙太奇跳转至指定section播放, 并在双端做到数据统一.--/
 void UGRBAbilitySystemComponent::CurrentMontageJumpToSectionForMesh(USkeletalMeshComponent* InMesh, FName SectionName)
 {
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	FGameplayAbilityLocalAnimMontageForMesh& AnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+	if ((SectionName != NAME_None) && AnimInstance && AnimMontageInfo.LocalMontageInfo.AnimMontage)
+	{
+		AnimInstance->Montage_JumpToSection(SectionName, AnimMontageInfo.LocalMontageInfo.AnimMontage);
+		if (IsOwnerActorAuthoritative())
+		{
+			AnimMontage_UpdateReplicatedDataForMesh(InMesh);
+		}
+		else
+		{
+			ServerCurrentMontageJumpToSectionNameForMesh(InMesh, AnimMontageInfo.LocalMontageInfo.AnimMontage, SectionName);
+		}
+	}
 }
 
-///--@brief 在本地蒙太奇包池子内查找 匹配给定动画技能的那个元素--/
+///--@brief 把给定骨架的蒙太奇设置下一个section, 并在双端做到数据统一.--/
+void UGRBAbilitySystemComponent::CurrentMontageSetNextSectionNameForMesh(USkeletalMeshComponent* InMesh, FName FromSectionName, FName ToSectionName)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	FGameplayAbilityLocalAnimMontageForMesh& AnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+	if (AnimMontageInfo.LocalMontageInfo.AnimMontage && AnimInstance)
+	{
+		// Set Next Section Name. 
+		AnimInstance->Montage_SetNextSection(FromSectionName, ToSectionName, AnimMontageInfo.LocalMontageInfo.AnimMontage);
+
+		// Update replicated version for Simulated Proxies if we are on the server.
+		if (IsOwnerActorAuthoritative())
+		{
+			AnimMontage_UpdateReplicatedDataForMesh(InMesh);
+		}
+		else
+		{
+			float CurrentPosition = AnimInstance->Montage_GetPosition(AnimMontageInfo.LocalMontageInfo.AnimMontage);
+			ServerCurrentMontageSetNextSectionNameForMesh(InMesh, AnimMontageInfo.LocalMontageInfo.AnimMontage, CurrentPosition, FromSectionName, ToSectionName);
+		}
+	}
+}
+
+///--@brief 把给定骨架的蒙太奇设置指定的播放速率, 并在双端做到数据统一.--/
+void UGRBAbilitySystemComponent::CurrentMontageSetPlayRateForMesh(USkeletalMeshComponent* InMesh, float InPlayRate)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	FGameplayAbilityLocalAnimMontageForMesh& AnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+	if (AnimMontageInfo.LocalMontageInfo.AnimMontage && AnimInstance)
+	{
+		// Set Play Rate
+		AnimInstance->Montage_SetPlayRate(AnimMontageInfo.LocalMontageInfo.AnimMontage, InPlayRate);
+
+		// Update replicated version for Simulated Proxies if we are on the server.
+		if (IsOwnerActorAuthoritative())
+		{
+			AnimMontage_UpdateReplicatedDataForMesh(InMesh);
+		}
+		else
+		{
+			ServerCurrentMontageSetPlayRateForMesh(InMesh, AnimMontageInfo.LocalMontageInfo.AnimMontage, InPlayRate);
+		}
+	}
+}
+
+///--@brief 校验给定的动画技能是否隶属于本地包体池子内的某个元素. --/
 bool UGRBAbilitySystemComponent::IsAnimatingAbilityForAnyMesh(UGameplayAbility* InAbility) const
 {
 	for (FGameplayAbilityLocalAnimMontageForMesh GameplayAbilityLocalAnimMontageForMesh : LocalAnimMontageInfoForMeshes)
@@ -492,6 +570,133 @@ bool UGRBAbilitySystemComponent::IsAnimatingAbilityForAnyMesh(UGameplayAbility* 
 		}
 	}
 	return false;
+}
+
+///--@brief 在本地包体池子内提取出当前唯一一个合法的动画技能.--/
+UGameplayAbility* UGRBAbilitySystemComponent::GetAnimatingAbilityFromAnyMesh()
+{
+	// Only one ability can be animating for all meshes
+	for (FGameplayAbilityLocalAnimMontageForMesh& GameplayAbilityLocalAnimMontageForMesh : LocalAnimMontageInfoForMeshes)
+	{
+		if (GameplayAbilityLocalAnimMontageForMesh.LocalMontageInfo.AnimatingAbility.IsValid())
+		{
+			return GameplayAbilityLocalAnimMontageForMesh.LocalMontageInfo.AnimatingAbility.Get();
+		}
+	}
+
+	return nullptr;
+}
+
+///--@brief 收集本地包体池子内正在播放已激活的蒙太奇资产.--/
+TArray<UAnimMontage*> UGRBAbilitySystemComponent::GetCurrentMontages() const
+{
+	TArray<UAnimMontage*> Montages;
+	for (FGameplayAbilityLocalAnimMontageForMesh GameplayAbilityLocalAnimMontageForMesh : LocalAnimMontageInfoForMeshes)
+	{
+		UAnimInstance* AnimInstance = IsValid(GameplayAbilityLocalAnimMontageForMesh.Mesh) && GameplayAbilityLocalAnimMontageForMesh.Mesh->GetOwner() == AbilityActorInfo->AvatarActor
+			                              ? GameplayAbilityLocalAnimMontageForMesh.Mesh->GetAnimInstance()
+			                              : nullptr;
+
+		if (GameplayAbilityLocalAnimMontageForMesh.LocalMontageInfo.AnimMontage &&
+			AnimInstance &&
+			AnimInstance->Montage_IsActive(GameplayAbilityLocalAnimMontageForMesh.LocalMontageInfo.AnimMontage))
+		{
+			Montages.Add(GameplayAbilityLocalAnimMontageForMesh.LocalMontageInfo.AnimMontage);
+		}
+	}
+
+	return Montages;
+}
+
+///--@brief 拿取给定骨架正在播放的蒙太奇资产.--/
+UAnimMontage* UGRBAbilitySystemComponent::GetCurrentMontageForMesh(USkeletalMeshComponent* InMesh)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	FGameplayAbilityLocalAnimMontageForMesh& AnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+	if (AnimMontageInfo.LocalMontageInfo.AnimMontage && AnimInstance && AnimInstance->Montage_IsActive(AnimMontageInfo.LocalMontageInfo.AnimMontage))
+	{
+		return AnimMontageInfo.LocalMontageInfo.AnimMontage;
+	}
+
+	return nullptr;
+}
+
+///--@brief 拿取给定骨架本地动画正在播放的SectionID--/
+int32 UGRBAbilitySystemComponent::GetCurrentMontageSectionIDForMesh(USkeletalMeshComponent* InMesh)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	UAnimMontage* CurrentAnimMontage = GetCurrentMontageForMesh(InMesh);
+	if (CurrentAnimMontage && AnimInstance)
+	{
+		float MontagePosition = AnimInstance->Montage_GetPosition(CurrentAnimMontage);
+		return CurrentAnimMontage->GetSectionIndexFromPosition(MontagePosition);
+	}
+
+	return INDEX_NONE;
+}
+
+///--@brief 拿取给定骨架本地动画正在播放的Section资产名字--/
+FName UGRBAbilitySystemComponent::GetCurrentMontageSectionNameForMesh(USkeletalMeshComponent* InMesh)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	UAnimMontage* CurrentAnimMontage = GetCurrentMontageForMesh(InMesh);
+
+	if (CurrentAnimMontage && AnimInstance)
+	{
+		float MontagePosition = AnimInstance->Montage_GetPosition(CurrentAnimMontage);
+		int32 CurrentSectionID = CurrentAnimMontage->GetSectionIndexFromPosition(MontagePosition);
+
+		return CurrentAnimMontage->GetSectionName(CurrentSectionID);
+	}
+
+	return NAME_None;
+}
+
+///--@brief 拿取指定骨架的正在播放的这段section总时长. --/
+float UGRBAbilitySystemComponent::GetCurrentMontageSectionLengthForMesh(USkeletalMeshComponent* InMesh)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	UAnimMontage* CurrentAnimMontage = GetCurrentMontageForMesh(InMesh);
+
+	if (CurrentAnimMontage && AnimInstance)
+	{
+		int32 CurrentSectionID = GetCurrentMontageSectionIDForMesh(InMesh);
+		if (CurrentSectionID != INDEX_NONE)
+		{
+			TArray<FCompositeSection>& CompositeSections = CurrentAnimMontage->CompositeSections;
+
+			// If we have another section after us, then take delta between both start times.
+			if (CurrentSectionID < (CompositeSections.Num() - 1))
+			{
+				return (CompositeSections[CurrentSectionID + 1].GetTime() - CompositeSections[CurrentSectionID].GetTime());
+			}
+			// Otherwise we are the last section, so take delta with Montage total time.
+			else
+			{
+				return (CurrentAnimMontage->GetPlayLength() - CompositeSections[CurrentSectionID].GetTime());
+			}
+		}
+
+		// if we have no sections, just return total length of Montage.
+		return CurrentAnimMontage->GetPlayLength();
+	}
+
+	return 0.f;
+}
+
+///--@brief 拿取给定骨架的的section的剩余未播放时长.--/
+float UGRBAbilitySystemComponent::GetCurrentMontageSectionTimeLeftForMesh(USkeletalMeshComponent* InMesh)
+{
+	UAnimInstance* AnimInstance = IsValid(InMesh) && InMesh->GetOwner() == AbilityActorInfo->AvatarActor ? InMesh->GetAnimInstance() : nullptr;
+	UAnimMontage* CurrentAnimMontage = GetCurrentMontageForMesh(InMesh);
+
+	if (CurrentAnimMontage && AnimInstance && AnimInstance->Montage_IsActive(CurrentAnimMontage))
+	{
+		const float CurrentPosition = AnimInstance->Montage_GetPosition(CurrentAnimMontage);
+		return CurrentAnimMontage->GetSectionTimeLeftFromPos(CurrentPosition);
+	}
+
+	return -1.f;
 }
 
 //---------------------------------------------------  ------------------------------------------------
@@ -835,7 +1040,7 @@ void UGRBAbilitySystemComponent::OnRep_ReplicatedAnimMontageForMesh()
 					 */
 					// Update Position. If error is too great, jump to replicated position.
 					const float LocalRealPos_Now = AnimInstance->Montage_GetPosition(EachLocalMontagePak.LocalMontageInfo.AnimMontage);
-					const int32 LocalMatchSectionID_Now = EachLocalMontagePak.LocalMontageInfo.AnimMontage->GetSectionIndexFromPosition(LocalRealPos_Now);// 本地蒙太奇section
+					const int32 LocalMatchSectionID_Now = EachLocalMontagePak.LocalMontageInfo.AnimMontage->GetSectionIndexFromPosition(LocalRealPos_Now); // 本地蒙太奇section
 					// 服务端上与模拟端本地蒙太奇播放位置的差异值
 					const float DeltaDiff = EachRepMontagePak.RepMontageInfo.Position - LocalRealPos_Now;
 					// 如若SectionID双端一致但却出现了 双端差异值大于容错阈值的意外情况
@@ -848,9 +1053,9 @@ void UGRBAbilitySystemComponent::OnRep_ReplicatedAnimMontageForMesh()
 							const float DeltaTime = !FMath::IsNearlyZero(EachRepMontagePak.RepMontageInfo.PlayRate) ? (DeltaDiff / EachRepMontagePak.RepMontageInfo.PlayRate) : 0.f;
 							if (DeltaTime >= 0.f)
 							{
-								MontageInstance->UpdateWeight(DeltaTime);// 通过更新蒙太奇实例的权重，可以实现动画的平滑切换、淡入淡出等效果
-								MontageInstance->HandleEvents(LocalRealPos_Now, EachRepMontagePak.RepMontageInfo.Position, nullptr);// 重设各种事件,以服务端的时刻为基准
-								AnimInstance->TriggerAnimNotifies(DeltaTime);// 动画实例以deltatime为依据 触发动画通知
+								MontageInstance->UpdateWeight(DeltaTime); // 通过更新蒙太奇实例的权重，可以实现动画的平滑切换、淡入淡出等效果
+								MontageInstance->HandleEvents(LocalRealPos_Now, EachRepMontagePak.RepMontageInfo.Position, nullptr); // 重设各种事件,以服务端的时刻为基准
+								AnimInstance->TriggerAnimNotifies(DeltaTime); // 动画实例以deltatime为依据 触发动画通知
 							}
 						}
 						// 最终为了应对意外情形,会把模拟端的本地包体动画播放时刻校准至rep包体远端的蒙太奇播放位置.
