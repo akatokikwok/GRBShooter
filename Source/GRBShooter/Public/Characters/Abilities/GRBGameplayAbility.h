@@ -3,12 +3,14 @@
 #include "CoreMinimal.h"
 #include "Abilities/GameplayAbility.h"
 #include "Characters/Abilities/GRBAbilityTypes.h"
+#include "GRBShooter/GRBShooter.h"
 #include "GRBGameplayAbility.generated.h"
 
+class UGRBHUDReticle;
 class USkeletalMeshComponent;
 
 /*
- * GRB项目内的关联骨架的蒙太奇结构体
+ * GRB项目内 技能蒙太奇包体, 负责维护关联的骨架和蒙太奇资产
  */
 USTRUCT()
 struct GRBSHOOTER_API FAbilityMeshMontageGRB
@@ -118,7 +120,7 @@ public:
 	virtual void GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Ability")
-	virtual void SetHUDReticle(TSubclassOf<class UGRBHUDReticle> ReticleClass);
+	virtual void SetHUDReticle(TSubclassOf<UGRBHUDReticle> ReticleClass);
 
 	UFUNCTION(BlueprintCallable, Category = "Ability")
 	virtual void ResetHUDReticle();
@@ -152,9 +154,10 @@ protected:
 	//	Animation Support for multiple USkeletalMeshComponents on the AvatarActor
 	// ----------------------------------------------------------------------------------------------------------------
 
-	///--@brief 从GRB蒙太奇池子里提取对应骨架的元素--/
+	///--@brief 在GRB池子内找关联特定骨架的池子元素--/
 	bool FindAbillityMeshMontage(const USkeletalMeshComponent* InMesh, FAbilityMeshMontageGRB& InAbilityMontage);
 
+	///--@brief 检查本技能是否隶属于ASC的池子元素(已激活的), 并跳转蒙太奇到给定section且维持双端统一.--/
 	/** Immediately jumps the active montage to a section */
 	UFUNCTION(BlueprintCallable, Category = "Ability|Animation")
 	void MontageJumpToSectionForMesh(USkeletalMeshComponent* InMesh, FName SectionName);

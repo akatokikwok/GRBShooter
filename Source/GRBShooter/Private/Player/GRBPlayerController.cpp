@@ -6,6 +6,10 @@
 #include "Weapons/GRBWeapon.h"
 
 
+void AGRBPlayerController::SetHUDReticle(TSubclassOf<UGRBHUDReticle> ReticleClass)
+{
+	
+}
 
 void AGRBPlayerController::ShowDamageNumber_Implementation(float DamageAmount, AGRBCharacterBase* TargetCharacter, FGameplayTagContainer DamageNumberTags)
 {

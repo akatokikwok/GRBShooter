@@ -5,6 +5,7 @@
 #include "Characters/Abilities/GRBAbilitySystemComponent.h"
 #include "Characters/Abilities/GRBTargetType_BaseObj.h"
 #include "Characters/Heroes/GRBHeroCharacter.h"
+#include "Player/GRBPlayerController.h"
 
 UGRBGameplayAbility::UGRBGameplayAbility()
 {
@@ -232,16 +233,20 @@ bool UGRBGameplayAbility::GRBCheckCost_Implementation(const FGameplayAbilitySpec
 ///--@brief 允许蓝图重载, 应用成本扣除--/
 void UGRBGameplayAbility::GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
+	// to do
 }
 
 void UGRBGameplayAbility::SetHUDReticle(TSubclassOf<UGRBHUDReticle> ReticleClass)
 {
-	
+	AGRBPlayerController* PC = Cast<AGRBPlayerController>(CurrentActorInfo->PlayerController);
+	if (PC)
+	{
+		PC->SetHUDReticle(ReticleClass);
+	}
 }
 
 void UGRBGameplayAbility::ResetHUDReticle()
 {
-	
 }
 
 ///--@brief 在多人游戏内的带预测的客户端内 往服务器发送索敌数据--/
@@ -270,22 +275,21 @@ bool UGRBGameplayAbility::IsInputPressed() const
 //--------------------------------------------------- ~ 动画与蒙太奇相关 ~ ------------------------------------------------
 //---------------------------------------------------  ------------------------------------------------
 #pragma region ~ 动画与蒙太奇相关 ~
-
-///--@brief 从GRB蒙太奇池子里提取出对应骨架关联的蒙太奇资产--/
+///--@brief 从GRB技能池子里提取骨架关联的蒙太奇资产.--/
 UAnimMontage* UGRBGameplayAbility::GetCurrentMontageForMesh(USkeletalMeshComponent* InMesh)
 {
-	FAbilityMeshMontageGRB AbilityMeshMontage;
-	if (FindAbillityMeshMontage(InMesh, AbilityMeshMontage))
+	FAbilityMeshMontageGRB AbilityMeshMontagePak;
+	if (bool QuerySuccess = FindAbillityMeshMontage(InMesh, AbilityMeshMontagePak))
 	{
-		return AbilityMeshMontage.Montage;
+		return AbilityMeshMontagePak.Montage;
 	}
 	return nullptr;
 }
 
-///--@brief 查找GRB蒙太奇池子内符合对应骨架的蒙太奇,并替换它; 查找失败则手动为此骨架注册进池子.--/
+///--@brief 设置GRB技能池子内关联骨架的蒙太奇资产, 如果查找失败则手动构建一组注册到技能池子内--/
 void UGRBGameplayAbility::SetCurrentMontageForMesh(USkeletalMeshComponent* InMesh, UAnimMontage* InCurrentMontage)
 {
-	ensure(IsInstantiated());// 确保此技能一定已经被实例化
+	ensure(IsInstantiated()); // 确保此技能一定已经被实例化
 
 	FAbilityMeshMontageGRB AbilityMeshMontage;
 	if (FindAbillityMeshMontage(InMesh, AbilityMeshMontage))
@@ -298,7 +302,7 @@ void UGRBGameplayAbility::SetCurrentMontageForMesh(USkeletalMeshComponent* InMes
 	}
 }
 
-///--@brief 从GRB蒙太奇池子里提取对应骨架的元素--/
+///--@brief 在GRB池子内找关联特定骨架的池子元素--/
 bool UGRBGameplayAbility::FindAbillityMeshMontage(const USkeletalMeshComponent* InMesh, FAbilityMeshMontageGRB& InAbilityMeshMontage)
 {
 	for (FAbilityMeshMontageGRB& MeshMontage : CurrentAbilityMeshMontages)
@@ -312,7 +316,7 @@ bool UGRBGameplayAbility::FindAbillityMeshMontage(const USkeletalMeshComponent* 
 	return false;
 }
 
-///--@brief --/
+///--@brief 检查本技能是否隶属于ASC的池子元素(已激活的), 并跳转蒙太奇到给定section且维持双端统一.--/
 void UGRBGameplayAbility::MontageJumpToSectionForMesh(USkeletalMeshComponent* InMesh, FName SectionName)
 {
 	check(CurrentActorInfo);

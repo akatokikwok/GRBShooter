@@ -17,7 +17,8 @@ public class GRBShooter : ModuleRules
 			"GameplayAbilities",
 			"GameplayTags",
 			"GameplayTasks",
-			"Paper2D"
+			"Paper2D",
+			"UMG",
 		});
 
 		// Uncomment if you are using Slate UI

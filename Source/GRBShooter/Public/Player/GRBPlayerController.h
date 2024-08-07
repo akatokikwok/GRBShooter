@@ -19,6 +19,10 @@ class GRBSHOOTER_API AGRBPlayerController : public APlayerController
 
 public:
 
+	UFUNCTION(BlueprintCallable, Category = "GASShooter|UI")
+	void SetHUDReticle(TSubclassOf<class UGRBHUDReticle> ReticleClass);
+
+	
 	UFUNCTION(Client, Reliable, WithValidation)
 	void ShowDamageNumber(float DamageAmount, AGRBCharacterBase* TargetCharacter, FGameplayTagContainer DamageNumberTags);
 	void ShowDamageNumber_Implementation(float DamageAmount, AGRBCharacterBase* TargetCharacter, FGameplayTagContainer DamageNumberTags);

@@ -358,10 +358,10 @@ float UGRBAbilitySystemComponent::PlayMontageForMesh(UGameplayAbility* InAnimati
 		if (Duration > 0.f)
 		{
 			// 提取出 传入骨架的本地蒙太奇信息
-			FGameplayAbilityLocalAnimMontageForMesh& LocalAnimMontageInfo = GetLocalAnimMontageInfoForMesh(InMesh);
+			FGameplayAbilityLocalAnimMontageForMesh& LocalAnimMontagePak = GetLocalAnimMontageInfoForMesh(InMesh);
 
 			// 1.意外情况排除
-			if (LocalAnimMontageInfo.LocalMontageInfo.AnimatingAbility.IsValid() && LocalAnimMontageInfo.LocalMontageInfo.AnimatingAbility != InAnimatingAbility) // 当本地蒙太奇的关联技能不匹配传入的GA,则视作是一种意外情况
+			if (LocalAnimMontagePak.LocalMontageInfo.AnimatingAbility.IsValid() && LocalAnimMontagePak.LocalMontageInfo.AnimatingAbility != InAnimatingAbility) // 当本地蒙太奇的关联技能不匹配传入的GA,则视作是一种意外情况
 			{
 				// The ability that was previously animating will have already gotten the 'interrupted' callback.
 				// It may be a good idea to make this a global policy and 'cancel' the ability.
@@ -376,8 +376,8 @@ float UGRBAbilitySystemComponent::PlayMontageForMesh(UGameplayAbility* InAnimati
 			}
 
 			// 2.填充本地蒙太奇Info 的关联GA和关联蒙太奇资产
-			LocalAnimMontageInfo.LocalMontageInfo.AnimMontage = NewAnimMontage;
-			LocalAnimMontageInfo.LocalMontageInfo.AnimatingAbility = InAnimatingAbility;
+			LocalAnimMontagePak.LocalMontageInfo.AnimMontage = NewAnimMontage;
+			LocalAnimMontagePak.LocalMontageInfo.AnimatingAbility = InAnimatingAbility;
 			if (InAbility)
 			{
 				InAbility->SetCurrentMontageForMesh(InMesh, NewAnimMontage);
