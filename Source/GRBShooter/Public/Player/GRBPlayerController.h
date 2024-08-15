@@ -8,7 +8,7 @@
 #include "GRBPlayerController.generated.h"
 
 class UPaperSprite;
-
+class UGRBHUDWidget;
 /**
  * 玩家控制器
  */
@@ -18,6 +18,7 @@ class GRBSHOOTER_API AGRBPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	UGRBHUDWidget* GetGRBHUD();
 
 	UFUNCTION(BlueprintCallable, Category = "GASShooter|UI")
 	void SetHUDReticle(TSubclassOf<class UGRBHUDReticle> ReticleClass);

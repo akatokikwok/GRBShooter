@@ -4,6 +4,9 @@
 
 #include "CoreMinimal.h"
 
+#define COLLISION_PICKUP						ECollisionChannel::ECC_GameTraceChannel4
+
+
 /*
  * 技能输入ID分类
  */
