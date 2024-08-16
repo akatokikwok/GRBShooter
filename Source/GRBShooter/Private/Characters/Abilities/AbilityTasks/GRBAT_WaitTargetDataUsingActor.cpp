@@ -272,10 +272,10 @@ void UGRBAT_WaitTargetDataUsingActor::InitializeTargetActor() const
 ///--@brief 当且仅当为非本地客户端的ASC绑定目标数据的回调并执行任务流等待远端的输入--/
 void UGRBAT_WaitTargetDataUsingActor::RegisterTargetDataCallbacks()
 {
-	if (!IsValid(this))
-	{
-		return;
-	}
+	// if (!IsValid(this))
+	// {
+	// 	return;
+	// }
 	check(Ability);
 
 	const bool bIsLocallyControlled = Ability->GetCurrentActorInfo()->IsLocallyControlled(); // 是否是本机客户端
