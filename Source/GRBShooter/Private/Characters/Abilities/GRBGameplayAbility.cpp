@@ -1,11 +1,22 @@
 #include "Characters/Abilities/GRBGameplayAbility.h"
 
+#include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_Repeat.h"
+#include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Characters/GRBCharacterBase.h"
 #include "Characters/Abilities/GRBAbilitySystemComponent.h"
 #include "Characters/Abilities/GRBTargetType_BaseObj.h"
+#include "Characters/Abilities/AbilityTasks/GRBAT_PlayMontageForMeshAndWaitForEvent.h"
+#include "Characters/Abilities/AbilityTasks/GRBAT_ServerWaitForClientTargetData.h"
+#include "Characters/Abilities/AbilityTasks/GRBAT_WaitDelayOneFrame.h"
+#include "Characters/Abilities/AbilityTasks/GRBAT_WaitTargetDataUsingActor.h"
 #include "Characters/Heroes/GRBHeroCharacter.h"
+#include "Engine/AssetManager.h"
+#include "Kismet/GameplayStatics.h"
 #include "Player/GRBPlayerController.h"
+#include "Weapons/GRBWeapon.h"
 
 UGRBGameplayAbility::UGRBGameplayAbility()
 {
@@ -95,7 +106,7 @@ FGameplayAbilityTargetDataHandle UGRBGameplayAbility::MakeGameplayAbilityTargetD
 	//---------------------------------------------------  ------------------------------------------------
 	// FGameplayAbilityTargetData 是一个抽象基类，不同的派生类可以存储不同类型的目标数据（比如单个目标、多个目标、位置等）
 	// FGameplayAbilityTargetData_ActorArray存储一系列TargetActors, 是FGameplayAbilityTargetData的子类;可用于AOE攻击
-	// FGameplayAbilityTargetDataHandle 是 Unreal Engine 的 Gameplay Ability System (GAS) 中用于传递目标数据的重要结构体。它广泛用于技能的瞄准、选择和应用目标效果等操作
+	// FGameplayAbilityTargetDataHandle 是 Unreal Engine 的 Gameplay Ability System (GRB) 中用于传递目标数据的重要结构体。它广泛用于技能的瞄准、选择和应用目标效果等操作
 	//---------------------------------------------------  ------------------------------------------------
 	if (TargetActors.Num() > 0)
 	{
@@ -371,3 +382,631 @@ void UGRBGameplayAbility::MontageStopForAllMeshes(float OverrideBlendOutTime)
 	}
 }
 #pragma endregion
+
+
+
+
+
+
+UGA_GRBRiflePrimaryInstant::UGA_GRBRiflePrimaryInstant()
+{
+	mAmmoCost = 1;
+	mAimingSpreadMod = 0.15;
+	mBulletDamage = 10.0f;
+	mFiringSpreadIncrement = 1.2;
+	mFiringSpreadMax = 10;
+	mTimeOfLastShot = -99999999.0f;
+	mWeaponSpread = 1.0f;
+	mTraceFromPlayerViewPointg = true;
+	mAimingTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.Aiming"));
+	mAimingRemovealTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.AimingRemoval"));
+
+
+	UGRBGameplayAbility::AbilityInputID = EGRBAbilityInputID::None;
+	UGRBGameplayAbility::AbilityID = EGRBAbilityInputID::PrimaryFire;
+
+	bActivateAbilityOnGranted = false;
+	bActivateOnInput = true;
+	bSourceObjectMustEqualCurrentWeaponToActivate = true;
+	bCannotActivateWhileInteracting = true;
+
+	UClass* pClass = LoadClass<UGameplayEffect>(nullptr, TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/GE_RifleDamage.GE_RifleDamage_C'"));
+	if (pClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("pClass name:%s"), *pClass->GetName());
+		UClass* const DamagedBuffClass = pClass;
+		if (DamagedBuffClass)
+		{
+			FGameplayTag InducedTag = FGameplayTag::RequestGameplayTag(FName("Ability"));
+			FGRBGameplayEffectContainer GRBGEContainerToApply = FGRBGameplayEffectContainer();
+			GRBGEContainerToApply.TargetType = nullptr;
+			GRBGEContainerToApply.TargetGameplayEffectClasses.AddUnique(TSubclassOf<UGameplayEffect>(DamagedBuffClass));
+			TTuple<FGameplayTag, FGRBGameplayEffectContainer> MakedPair(InducedTag, GRBGEContainerToApply);
+			EffectContainerMap.Add(MakedPair);
+		}
+	}
+
+	FGameplayTagContainer TagContainer_AbilityTags;
+	FGameplayTagContainer TagContainer_CancelAbilities;
+	FGameplayTagContainer TagContainer_BlockAbilities;
+	FGameplayTagContainer TagContainer_ActivationOwnedTags;
+	FGameplayTagContainer TagContainer_ActivationBlockedTags;
+	TagContainer_AbilityTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.Primary.Instant")));
+	TagContainer_CancelAbilities.AddTag(FGameplayTag::EmptyTag);
+	TagContainer_BlockAbilities.AddTag(FGameplayTag::EmptyTag);
+	TagContainer_ActivationOwnedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.BlocksInteraction")));
+	TagContainer_ActivationOwnedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Weapon.IsFiring")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.IsChanging")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.Dead")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.KnockedDown")));
+
+	AbilityTags = TagContainer_AbilityTags;
+	CancelAbilitiesWithTag = TagContainer_CancelAbilities;
+	BlockAbilitiesWithTag = TagContainer_BlockAbilities;
+	ActivationOwnedTags = TagContainer_ActivationOwnedTags;
+	ActivationBlockedTags = TagContainer_ActivationBlockedTags;
+}
+
+void UGA_GRBRiflePrimaryInstant::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	CheckAndSetupCacheables();
+
+	// Reset CurrentSpread back to 0 on Activate. Continuous fire does not reset spread.
+	mLineTraceTargetActor->ResetSpread();
+
+	// Tell the Server to start waiting for replicated TargetData. Client simply returns from the Task's Activate(). If the player is the Server (Host), this won't do anything since the TargetData is never RPC'd and the bullet will be handled through the FireBullet event.
+	bool bTriggerOnce = false;
+	UGRBAT_ServerWaitForClientTargetData* pAsyncTask = UGRBAT_ServerWaitForClientTargetData::ServerWaitForClientTargetData(this, FName("None"), bTriggerOnce);
+	pAsyncTask->ValidDataDelegate.AddUniqueDynamic(this, &UGA_GRBRiflePrimaryInstant::HandleTargetData);
+	pAsyncTask->ReadyForActivation();
+	mServerWaitTargetDataTask = pAsyncTask;
+
+	// Client immediately fires
+	FireBullet();
+}
+
+bool UGA_GRBRiflePrimaryInstant::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	// return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+
+	// Make sure time between activations is more than time between shots so the player can't just click really fast to skirt around the time between shots.
+	if (IsValid(mGAPrimary))
+	{
+		const float& DeltaMinus = UGameplayStatics::GetTimeSeconds(this) - mTimeOfLastShot;
+		if (FMath::Abs(DeltaMinus) >= mGAPrimary->m_TimeBetweenShot)
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+	else if (!IsValid(mGAPrimary))
+	{
+		return true;
+	}
+	return true;
+}
+
+void UGA_GRBRiflePrimaryInstant::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+	if (IsValid(mServerWaitTargetDataTask))
+	{
+		mServerWaitTargetDataTask->EndTask();
+	}
+}
+
+bool UGA_GRBRiflePrimaryInstant::GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const
+{
+	// return Super::GRBCheckCost_Implementation(Handle, ActorInfo);
+
+	if (AGRBWeapon* pGRBWeapon = Cast<AGRBWeapon>(GetSourceObject(Handle, &ActorInfo)))
+	{
+		if ((pGRBWeapon->GetPrimaryClipAmmo() >= mAmmoCost || pGRBWeapon->HasInfiniteAmmo()) && Super::GRBCheckCost_Implementation(Handle, ActorInfo))
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void UGA_GRBRiflePrimaryInstant::GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	Super::GRBApplyCost_Implementation(Handle, ActorInfo, ActivationInfo);
+
+	if (AGRBWeapon* pGRBWeapon = Cast<AGRBWeapon>(GetSourceObject(Handle, &ActorInfo)))
+	{
+		if (!pGRBWeapon->HasInfiniteAmmo())
+		{
+			pGRBWeapon->SetPrimaryClipAmmo(pGRBWeapon->GetPrimaryClipAmmo() - mAmmoCost);
+		}
+	}
+}
+
+void UGA_GRBRiflePrimaryInstant::ManallyKillInstantGA()
+{
+	K2_EndAbility();
+}
+
+void UGA_GRBRiflePrimaryInstant::FireBullet()
+{
+	// Only fire bullets (generate target data) on the local player
+	if (GetActorInfo().PlayerController->IsLocalPlayerController())
+	{
+		// Only fire a bullet if not on cooldown (enough time has passed >= to TimeBetweenShots from managing Ability)
+		if (FMath::Abs(UGameplayStatics::GetTimeSeconds(this) - mTimeOfLastShot) >= mGAPrimary->m_TimeBetweenShot - 0.01)
+		{
+			if (UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo))
+			{
+				// Configure reusable Line Trace Target Actor.
+				if (IsValid(mSourceWeapon))
+				{
+					if (mOwningHero->IsInFirstPersonPerspective())
+					{
+						TEnumAsByte<EGameplayAbilityTargetingLocationType::Type> LocationType = EGameplayAbilityTargetingLocationType::SocketTransform;
+						FTransform LiteralTransform = FTransform();
+						TObjectPtr<AActor> SourceActor = TObjectPtr<AActor>();
+						TObjectPtr<UMeshComponent> SourceComponent = TObjectPtr<UMeshComponent>(Weapon1PMesh);
+						TObjectPtr<UGameplayAbility> SourceAbility = nullptr;
+						FName SourceSocketName = FName("MuzzleFlashSocket");
+
+						FGameplayAbilityTargetingLocationInfo pLocationInfo = FGameplayAbilityTargetingLocationInfo();
+						pLocationInfo.LocationType = LocationType;
+						pLocationInfo.LiteralTransform = LiteralTransform;
+						pLocationInfo.SourceActor = SourceActor;
+						pLocationInfo.SourceComponent = SourceComponent;
+						pLocationInfo.SourceAbility = SourceAbility;
+						pLocationInfo.SourceSocketName = SourceSocketName;
+
+
+						mTraceStartLocation = pLocationInfo;
+						mTraceFromPlayerViewPointg = true;
+						mLineTraceTargetActor->Configure(mTraceStartLocation, mAimingTag, mAimingRemovealTag,
+						                                 FCollisionProfileName(FName("Projectile")), FGameplayTargetDataFilterHandle(), nullptr,
+						                                 FWorldReticleParameters(), false, false,
+						                                 false, false, true,
+						                                 mTraceFromPlayerViewPointg, true, 99999999.0f,
+						                                 mWeaponSpread, mAimingSpreadMod, mFiringSpreadIncrement,
+						                                 mFiringSpreadMax, 1, 1
+						);
+
+						// RPC TargetData to the Server
+						UGRBAT_WaitTargetDataUsingActor* AsyncTaskNode = UGRBAT_WaitTargetDataUsingActor::WaitTargetDataWithReusableActor(this, FName("None"), EGameplayTargetingConfirmation::Instant, mLineTraceTargetActor, true);
+						AsyncTaskNode->ValidData.AddUniqueDynamic(this, &UGA_GRBRiflePrimaryInstant::HandleTargetData); // Handle shot locally - predict hit impact FX or apply damage if player is Host
+						AsyncTaskNode->ReadyForActivation();
+
+						mTimeOfLastShot = UGameplayStatics::GetTimeSeconds(this);
+					}
+					else
+					{
+					}
+				}
+			}
+			else
+			{
+				UGameplayAbility::CancelAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false);
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Error: Tried to fire a bullet too fast"))
+		}
+	}
+}
+
+void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDataHandle& InTargetDataHandle)
+{
+	bool BroadcastCommitEvent = false;
+	if (UGameplayAbility::K2_CommitAbilityCost(BroadcastCommitEvent))
+	{
+		PlayFireMontage();
+
+		// Functionally equivalent. Container path does have an insignificant couple more function calls.
+		FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/GE_RifleDamage.GE_RifleDamage_C'"));
+		UClass* pBP_RifleDamageGE = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
+		if (pBP_RifleDamageGE)
+		{
+			const FGameplayEffectSpecHandle& RifleDamageGESpecHandle = UGameplayAbility::MakeOutgoingGameplayEffectSpec(pBP_RifleDamageGE, 1);
+			const FGameplayTag& CauseTag = FGameplayTag::RequestGameplayTag(FName("Data.Damage"));
+			const float& Magnitude = mBulletDamage;
+			const FGameplayEffectSpecHandle& TheBuffToApply = UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(RifleDamageGESpecHandle, CauseTag, Magnitude);
+
+			const TArray<FActiveGameplayEffectHandle>& ActiveGEHandles = K2_ApplyGameplayEffectSpecToTarget(TheBuffToApply, InTargetDataHandle);
+
+			const FGameplayEffectContextHandle& ContextHandle = UAbilitySystemBlueprintLibrary::GetEffectContext(TheBuffToApply);
+
+			bool Reset = false;
+			const FHitResult& HitResultApply = UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(InTargetDataHandle, 0);
+			UAbilitySystemBlueprintLibrary::EffectContextAddHitResult(ContextHandle, HitResultApply, Reset);
+
+			const FGameplayTag& CueTag = FGameplayTag::RequestGameplayTag(FName("GameplayCue.Weapon.Rifle.Fire"));
+			const FGameplayCueParameters CueParameters = UAbilitySystemBlueprintLibrary::MakeGameplayCueParameters(0, 0, ContextHandle,
+			                                                                                                       FGameplayTag::EmptyTag, FGameplayTag::EmptyTag, FGameplayTagContainer(),
+			                                                                                                       FGameplayTagContainer(), FVector::ZeroVector, FVector::ZeroVector,
+			                                                                                                       nullptr, nullptr, nullptr,
+			                                                                                                       nullptr, 1, 1,
+			                                                                                                       nullptr, false);
+			UGameplayAbility::K2_ExecuteGameplayCueWithParams(CueTag, CueParameters);
+		}
+	}
+	else
+	{
+		UGameplayAbility::K2_CancelAbility();
+	}
+}
+
+void UGA_GRBRiflePrimaryInstant::PlayFireMontage()
+{
+	if (GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingTag) && !GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingRemovealTag))
+	{
+		if (UAnimMontage* pMontageAsset = LoadObject<UAnimMontage>(mOwningHero, TEXT("/Script/Engine.AnimMontage'/Game/ShooterGame/Animations/FPP_Animations/FPP_RifleAimFire_Montage.FPP_RifleAimFire_Montage'")))
+		{
+			UGRBAT_PlayMontageForMeshAndWaitForEvent* Node = UGRBAT_PlayMontageForMeshAndWaitForEvent::PlayMontageForMeshAndWaitForEvent(
+				this,
+				FName("None"),
+				mOwningHero->GetFirstPersonMesh(),
+				pMontageAsset,
+				FGameplayTagContainer(),
+				1,
+				FName("None"),
+				false,
+				1,
+				false,
+				-1,
+				-1
+			);
+			Node->ReadyForActivation();
+		}
+	}
+	else
+	{
+		if (UAnimMontage* pMontageAsset = LoadObject<UAnimMontage>(mOwningHero, TEXT("/Script/Engine.AnimMontage'/Game/ShooterGame/Animations/FPP_Animations/HerroFPP_RifleFire_Montage.HerroFPP_RifleFire_Montage'")))
+		{
+			UGRBAT_PlayMontageForMeshAndWaitForEvent* Node = UGRBAT_PlayMontageForMeshAndWaitForEvent::PlayMontageForMeshAndWaitForEvent(
+				this,
+				FName("None"),
+				mOwningHero->GetFirstPersonMesh(),
+				pMontageAsset,
+				FGameplayTagContainer(),
+				1,
+				FName("None"),
+				false,
+				1,
+				false,
+				-1,
+				-1
+			);
+			Node->ReadyForActivation();
+		}
+	}
+}
+
+void UGA_GRBRiflePrimaryInstant::CheckAndSetupCacheables()
+{
+	if (!IsValid(mSourceWeapon))
+	{
+		mSourceWeapon = Cast<AGRBWeapon>(GetCurrentSourceObject());
+	}
+	if (!IsValid(Weapon1PMesh))
+	{
+		Weapon1PMesh = mSourceWeapon->GetWeaponMesh1P();
+	}
+	if (!IsValid(Weapon3PMesh))
+	{
+		Weapon3PMesh = mSourceWeapon->GetWeaponMesh3P();
+	}
+	if (!IsValid(mOwningHero))
+	{
+		mOwningHero = Cast<AGRBHeroCharacter>(GetAvatarActorFromActorInfo());
+	}
+	if (!IsValid(mGAPrimary))
+	{
+		FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/BP_GA_RifleContinouslyShoot.BP_GA_RifleContinouslyShoot_C'"));
+		UClass* pBPClassTmplate = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
+		if (pBPClassTmplate)
+		{
+			mGAPrimary = Cast<UGA_GRBRiflePrimary>(UGRBBlueprintFunctionLibrary::GetPrimaryAbilityInstanceFromClass(GetAbilitySystemComponentFromActorInfo(), pBPClassTmplate));
+		}
+	}
+	if (!IsValid(mLineTraceTargetActor))
+	{
+		mLineTraceTargetActor = mSourceWeapon->GetLineTraceTargetActor();
+	}
+}
+
+UGA_GRBRiflePrimary::UGA_GRBRiflePrimary()
+{
+	m_TimeBetweenShot = 0.1f;
+	m_AmmoCost = 1;
+
+	UGRBGameplayAbility::AbilityInputID = EGRBAbilityInputID::PrimaryFire;
+	UGRBGameplayAbility::AbilityID = EGRBAbilityInputID::PrimaryFire;
+
+	bActivateAbilityOnGranted = false;
+	bActivateOnInput = true;
+	bSourceObjectMustEqualCurrentWeaponToActivate = true;
+	bCannotActivateWhileInteracting = true;
+
+
+	FGameplayTagContainer TagContainer_AbilityTags;
+	FGameplayTagContainer TagContainer_CancelAbilities;
+	FGameplayTagContainer TagContainer_BlockAbilities;
+	FGameplayTagContainer TagContainer_ActivationOwnedTags;
+	FGameplayTagContainer TagContainer_ActivationBlockedTags;
+	TagContainer_AbilityTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.Primary")));
+	TagContainer_CancelAbilities.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.Reload")));
+	TagContainer_BlockAbilities.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Sprint")));
+	TagContainer_BlockAbilities.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.IsChanging")));
+	TagContainer_ActivationOwnedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.BlocksInteraction")));
+	TagContainer_ActivationOwnedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.CancelsSprint")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.IsChanging")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.Dead")));
+	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.KnockedDown")));
+
+	AbilityTags = TagContainer_AbilityTags;
+	CancelAbilitiesWithTag = TagContainer_CancelAbilities;
+	BlockAbilitiesWithTag = TagContainer_BlockAbilities;
+	ActivationOwnedTags = TagContainer_ActivationOwnedTags;
+	ActivationBlockedTags = TagContainer_ActivationBlockedTags;
+}
+
+void UGA_GRBRiflePrimary::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+{
+	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	CheckAndSetupCacheables();
+
+	/**
+	 * First shot out of sprint is delayed 0.03 since it takes 0.03 to blend out of sprint animation in Anim BP, otherwise bullet shoots from where the gun is while sprinting.
+	 */
+	if (GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(FName("State.Sprinting"))))
+	{
+		UAbilityTask_WaitDelay* const AsyncNodeTask_WaitDelay = UAbilityTask_WaitDelay::WaitDelay(this, 0.03f);
+		AsyncNodeTask_WaitDelay->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnWaitDelyBussCallback);
+		AsyncNodeTask_WaitDelay->ReadyForActivation();
+	}
+	else
+	{
+		UGRBAT_WaitDelayOneFrame* const AsyncNode_WaitDelayOneFrame = UGRBAT_WaitDelayOneFrame::WaitDelayOneFrame(this);
+		AsyncNode_WaitDelayOneFrame->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnWaitDelyBussCallback);
+		AsyncNode_WaitDelayOneFrame->ReadyForActivation();
+	}
+}
+
+bool UGA_GRBRiflePrimary::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	bool Result = Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
+	return Result;
+}
+
+void UGA_GRBRiflePrimary::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+{
+	AsyncWaitDelayNode_ContinousShoot = nullptr;
+	m_InstantAbility = nullptr;
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+bool UGA_GRBRiflePrimary::GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const
+{
+	if (AGRBWeapon* const pGRBWeapon = Cast<AGRBWeapon>(GetSourceObject(Handle, &ActorInfo)))
+	{
+		bool Cond1 = (pGRBWeapon->GetPrimaryClipAmmo() >= m_AmmoCost || pGRBWeapon->HasInfiniteAmmo());
+
+		bool Cond2 = Super::GRBCheckCost_Implementation(Handle, ActorInfo) && Cond1;
+
+		if (Cond2)
+		{
+			return true;
+		}
+		else
+		{
+			if (UGRBBlueprintFunctionLibrary::IsPrimaryAbilityInstanceActive(ActorInfo.AbilitySystemComponent.Get(), Handle))
+			{
+			}
+			else
+			{
+				FGameplayTagContainer pTagContainer;
+				pTagContainer.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.Reload")));
+				bool bAllowRemoteActivation = true;
+				bool TryActivateGAResult = ActorInfo.AbilitySystemComponent.Get()->TryActivateAbilitiesByTag(pTagContainer, bAllowRemoteActivation);
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+void UGA_GRBRiflePrimary::CheckAndSetupCacheables()
+{
+	if (IsValid(m_SourceWeapon))
+	{
+	}
+	else if (!IsValid(m_SourceWeapon))
+	{
+		if (AGRBWeapon* const pCastGRBWeapon = Cast<AGRBWeapon>(GetCurrentSourceObject()))
+		{
+			m_SourceWeapon = pCastGRBWeapon;
+		}
+	}
+
+	if (UGRBBlueprintFunctionLibrary::IsAbilitySpecHandleValid(m_InstantAbilityHandle))
+	{
+	}
+	else if (!UGRBBlueprintFunctionLibrary::IsAbilitySpecHandleValid(m_InstantAbilityHandle))
+	{
+		if (UGRBAbilitySystemComponent* const pGRBASCComp = Cast<UGRBAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+		{
+			FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/BP_GA_RifleContinouslyShootInstant.BP_GA_RifleContinouslyShootInstant_C'"));
+			UClass* pBPClassTmplate = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
+			if (pBPClassTmplate)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("pClass_Actor name:%s"), *pBPClassTmplate->GetName());
+				TSubclassOf<UGameplayAbility> pParamSubclass = pBPClassTmplate;
+				m_InstantAbilityHandle = pGRBASCComp->FindAbilitySpecHandleForClass(pParamSubclass, m_SourceWeapon);
+			}
+		}
+	}
+
+	if (IsValid((m_InstantAbility)))
+	{
+	}
+	else
+	{
+		UGRBGameplayAbility* const pResultGameplayAbility = UGRBBlueprintFunctionLibrary::GetPrimaryAbilityInstanceFromHandle(GetAbilitySystemComponentFromActorInfo(), m_InstantAbilityHandle);
+		if (UGA_GRBRiflePrimaryInstant* const pGA_PrimaryInstant = Cast<UGA_GRBRiflePrimaryInstant>(pResultGameplayAbility))
+		{
+			m_InstantAbility = pGA_PrimaryInstant;
+		}
+	}
+}
+
+void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
+{
+	if (IsValid(m_SourceWeapon))
+	{
+		if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.SemiAuto")))
+		{
+			bool bEndAbilityImmediately = true;
+			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
+			if (Result || !Result)
+			{
+				bool bReplicateEndAbility = true;
+				bool bWasCancelled = false;
+				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+			}
+		}
+		else if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.FullAuto")))
+		{
+			bool bEndAbilityImmediately = false;
+			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
+			if (Result)
+			{
+				// End both abilities when the player releases the trigger
+				UAbilityTask_WaitInputRelease* const AsyncWaitInputReleaseNode = UAbilityTask_WaitInputRelease::WaitInputRelease(this, true);
+				AsyncWaitInputReleaseNode->OnRelease.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnReleaseBussCallback);
+				AsyncWaitInputReleaseNode->ReadyForActivation();
+
+				// Continuously fire a bullet
+				AsyncWaitDelayNode_ContinousShoot = UAbilityTask_WaitDelay::WaitDelay(this, m_TimeBetweenShot);
+				AsyncWaitDelayNode_ContinousShoot->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback);
+				AsyncWaitDelayNode_ContinousShoot->ReadyForActivation();
+			}
+			else
+			{
+				bool bReplicateEndAbility = true;
+				bool bWasCancelled = false;
+				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+			}
+		}
+		else if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.Burst")))
+		{
+			bool bEndAbilityImmediately = false;
+			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
+			if (Result)
+			{
+				// First bullet is in batch with ActivateAbility, delay for bullets 2 and 3
+				UAbilityTask_WaitDelay* const AsyncWaitDelayNode = UAbilityTask_WaitDelay::WaitDelay(this, m_TimeBetweenShot);
+				AsyncWaitDelayNode->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::WhenFireBullets2And3Callback);
+				AsyncWaitDelayNode->ReadyForActivation();
+			}
+			else
+			{
+				bool bReplicateEndAbility = true;
+				bool bWasCancelled = false;
+				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+			}
+		}
+		else
+		{
+			bool bReplicateEndAbility = true;
+			bool bWasCancelled = false;
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+		}
+	}
+}
+
+void UGA_GRBRiflePrimary::OnReleaseBussCallback(float InPayload_TimeHeld)
+{
+	UE_LOG(LogTemp, Log, TEXT("停止射击子弹"));
+
+	m_InstantAbility->ManallyKillInstantGA();
+	K2_EndAbility();
+	// bool bReplicateEndAbility = true;
+	// bool bWasCancelled = false;
+	// EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+	// this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback()
+{
+	if (UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo))
+	{
+		// FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/GA_RiflePrimaryInstant.GA_RiflePrimaryInstant_C'"));
+		// UClass* pBPClassTmplate = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
+		// if (pBPClassTmplate)
+		// {
+		// 	UFunction* pFunction = pBPClassTmplate->GetDefaultObject()->FindFunctionChecked(FName(TEXT("FireBullet")));
+		// 	if (pFunction)
+		// 	{
+		// 		// ProcessEvent(pFunction, nullptr);
+		// 	}
+		// }
+
+		m_InstantAbility->FireBullet();
+
+		UE_LOG(LogTemp, Log, TEXT("射了一发子弹"));
+		AsyncWaitDelayNode_ContinousShoot->OnFinish.RemoveAll(this);
+		AsyncWaitDelayNode_ContinousShoot->EndTask();
+		AsyncWaitDelayNode_ContinousShoot = nullptr;
+		AsyncWaitDelayNode_ContinousShoot = UAbilityTask_WaitDelay::WaitDelay(this, m_TimeBetweenShot);
+		AsyncWaitDelayNode_ContinousShoot->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback);
+		AsyncWaitDelayNode_ContinousShoot->ReadyForActivation();
+	}
+	else
+	{
+		OnReleaseBussCallback(-1);
+	}
+}
+
+void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallbackV2()
+{
+	ContinuouslyFireOneBulletCallback();
+}
+
+void UGA_GRBRiflePrimary::WhenFireBullets2And3Callback()
+{
+	UAbilityTask_Repeat* const AsyncNode_Repeat = UAbilityTask_Repeat::RepeatAction(this, m_TimeBetweenShot, 2);
+	AsyncNode_Repeat->OnPerformAction.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::PerformActionBussCallback);
+	AsyncNode_Repeat->OnFinished.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::RepeatNodeOnFinishBussCallback);
+}
+
+void UGA_GRBRiflePrimary::PerformActionBussCallback(int32 PerformActionNumber)
+{
+	if (CheckCost(CurrentSpecHandle, CurrentActorInfo))
+	{
+		m_InstantAbility->FireBullet();
+	}
+	else
+	{
+		bool bReplicateEndAbility = true;
+		bool bWasCancelled = false;
+		EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+		this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+	}
+}
+
+void UGA_GRBRiflePrimary::RepeatNodeOnFinishBussCallback(int32 ActionNumber)
+{
+	bool bReplicateEndAbility = true;
+	bool bWasCancelled = false;
+	EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+	this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+}

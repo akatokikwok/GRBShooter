@@ -225,3 +225,145 @@ protected:
 	// 在执行交互移除时刻的标签
 	FGameplayTag InteractingRemovalTag;
 };
+
+
+
+UCLASS()
+class GRBSHOOTER_API UGA_GRBRiflePrimaryInstant : public UGRBGameplayAbility
+{
+	GENERATED_BODY()
+
+public:
+	UGA_GRBRiflePrimaryInstant();
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+	virtual bool GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const override;
+	virtual void GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
+
+	void ManallyKillInstantGA();
+public:
+	UFUNCTION(BlueprintCallable)
+	void FireBullet();
+
+	UFUNCTION(BlueprintCallable)
+	void HandleTargetData(const FGameplayAbilityTargetDataHandle& InTargetDataHandle);
+
+private:
+	void PlayFireMontage();
+	
+	void CheckAndSetupCacheables();
+
+public:
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class USkeletalMeshComponent* Weapon1PMesh = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class USkeletalMeshComponent* Weapon3PMesh = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBWeapon* mSourceWeapon = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBHeroCharacter* mOwningHero = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class UGA_GRBRiflePrimary* mGAPrimary = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class UGRBAT_ServerWaitForClientTargetData* mServerWaitTargetDataTask = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	int32 mAmmoCost = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mAimingSpreadMod = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mBulletDamage = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mFiringSpreadIncrement = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mFiringSpreadMax = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mTimeOfLastShot = -99999999.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mWeaponSpread = 1.0f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	struct FGameplayAbilityTargetingLocationInfo mTraceStartLocation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	bool mTraceFromPlayerViewPointg = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	FGameplayTag mAimingTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.Aiming"));
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	FGameplayTag mAimingRemovealTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.AimingRemoval"));
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBGATA_LineTrace* mLineTraceTargetActor = nullptr;
+};
+
+UCLASS()
+class GRBSHOOTER_API UGA_GRBRiflePrimary : public UGRBGameplayAbility
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RiflePrimary")
+	class AGRBWeapon* m_SourceWeapon = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RiflePrimary")
+	float m_TimeBetweenShot = 0.1f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RiflePrimary")
+	struct FGameplayAbilitySpecHandle m_InstantAbilityHandle;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RiflePrimary")
+	class UGA_GRBRiflePrimaryInstant* m_InstantAbility = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RiflePrimary")
+	int32 m_AmmoCost;
+
+public:
+	UGA_GRBRiflePrimary();
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+	virtual bool GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const override;
+
+protected:
+	void CheckAndSetupCacheables();
+
+private:
+	UFUNCTION()
+	void OnWaitDelyBussCallback();
+
+	UFUNCTION()
+	void OnReleaseBussCallback(float InPayload_TimeHeld);
+
+	UFUNCTION()
+	void ContinuouslyFireOneBulletCallback();
+
+	UFUNCTION()
+	void ContinuouslyFireOneBulletCallbackV2();
+
+	UFUNCTION()
+	void WhenFireBullets2And3Callback();
+
+	UFUNCTION()
+	void PerformActionBussCallback(int32 PerformActionNumber);
+
+	UFUNCTION()
+	void RepeatNodeOnFinishBussCallback(int32 ActionNumber);
+
+	UPROPERTY()
+	class UAbilityTask_WaitDelay* AsyncWaitDelayNode_ContinousShoot = nullptr;
+};
