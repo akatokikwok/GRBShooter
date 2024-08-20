@@ -2,11 +2,13 @@
 
 #include "AbilitySystemBlueprintLibrary.h"
 #include "AbilitySystemComponent.h"
+#include "GRBBlueprintFunctionLibrary.h"
 #include "Abilities/Tasks/AbilityTask_Repeat.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
 #include "Characters/GRBCharacterBase.h"
 #include "Characters/Abilities/GRBAbilitySystemComponent.h"
+#include "Characters/Abilities/GRBGATA_LineTrace.h"
 #include "Characters/Abilities/GRBTargetType_BaseObj.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_PlayMontageForMeshAndWaitForEvent.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_ServerWaitForClientTargetData.h"
@@ -90,7 +92,8 @@ bool UGRBGameplayAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Ha
 ///--@brief 虚接口: 检查技能发动消耗成本--/
 bool UGRBGameplayAbility::CheckCost(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, FGameplayTagContainer* OptionalRelevantTags) const
 {
-	return Super::CheckCost(Handle, ActorInfo, OptionalRelevantTags);
+	/** 这里需要额外注意; GRBCheckCost检测机制会在子类覆写*/
+	return Super::CheckCost(Handle, ActorInfo, OptionalRelevantTags) && GRBCheckCost(Handle, *ActorInfo);
 }
 
 ///--@brief 虚接口: 一个能力被激活时，ApplyCost 方法会实际扣除该能力所需的资源（例如魔法值、能量点等），确保该成本在系统中被正确处理--/
@@ -384,32 +387,33 @@ void UGRBGameplayAbility::MontageStopForAllMeshes(float OverrideBlendOutTime)
 #pragma endregion
 
 
-
-
-
-
+#pragma region ~ 副开火技能 ~
+///--@brief 构造器--/
 UGA_GRBRiflePrimaryInstant::UGA_GRBRiflePrimaryInstant()
 {
-	mAmmoCost = 1;
-	mAimingSpreadMod = 0.15;
-	mBulletDamage = 10.0f;
-	mFiringSpreadIncrement = 1.2;
-	mFiringSpreadMax = 10;
-	mTimeOfLastShot = -99999999.0f;
-	mWeaponSpread = 1.0f;
-	mTraceFromPlayerViewPointg = true;
+	/** 配置业务数据*/
+	mAmmoCost = 1; // 单回合射击消耗的弹量 1
+	mAimingSpreadMod = 0.15; // 扩散调幅 == 0.15
+	mBulletDamage = 10.0f; // 单发伤害为10
+	mFiringSpreadIncrement = 1.2; // 扩散增幅 == 1.2
+	mFiringSpreadMax = 10; // 扩散阈值 == 10
+	mTimeOfLastShot = -99999999.0f; // 上次的射击时刻
+	mWeaponSpread = 1.0f; // 武器扩散基准系数
+	mTraceFromPlayerViewPointg = true; // 启用从视角摄像机追踪射线
 	mAimingTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.Aiming"));
 	mAimingRemovealTag = FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.AimingRemoval"));
 
-
+	/** 配置技能输入ID*/
 	UGRBGameplayAbility::AbilityInputID = EGRBAbilityInputID::None;
 	UGRBGameplayAbility::AbilityID = EGRBAbilityInputID::PrimaryFire;
 
-	bActivateAbilityOnGranted = false;
-	bActivateOnInput = true;
-	bSourceObjectMustEqualCurrentWeaponToActivate = true;
-	bCannotActivateWhileInteracting = true;
+	/** 配置和技能架构相关联的参数*/
+	bActivateAbilityOnGranted = false; // 禁用授权好技能后自动激活
+	bActivateOnInput = true; // 启用当检测到外部键鼠输入,自动激活技能
+	bSourceObjectMustEqualCurrentWeaponToActivate = true; // 启用当装备好武器后应用SourceObject
+	bCannotActivateWhileInteracting = true; // 启用当交互时阻止激活技能
 
+	/** 配置带来的射击伤害BUFF*/
 	UClass* pClass = LoadClass<UGameplayEffect>(nullptr, TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/GE_RifleDamage.GE_RifleDamage_C'"));
 	if (pClass)
 	{
@@ -426,6 +430,7 @@ UGA_GRBRiflePrimaryInstant::UGA_GRBRiflePrimaryInstant()
 		}
 	}
 
+	/** 配置诸标签打断关系*/
 	FGameplayTagContainer TagContainer_AbilityTags;
 	FGameplayTagContainer TagContainer_CancelAbilities;
 	FGameplayTagContainer TagContainer_BlockAbilities;
@@ -439,7 +444,6 @@ UGA_GRBRiflePrimaryInstant::UGA_GRBRiflePrimaryInstant()
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.IsChanging")));
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.Dead")));
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.KnockedDown")));
-
 	AbilityTags = TagContainer_AbilityTags;
 	CancelAbilitiesWithTag = TagContainer_CancelAbilities;
 	BlockAbilitiesWithTag = TagContainer_BlockAbilities;
@@ -447,15 +451,19 @@ UGA_GRBRiflePrimaryInstant::UGA_GRBRiflePrimaryInstant()
 	ActivationBlockedTags = TagContainer_ActivationBlockedTags;
 }
 
+///--@brief 激活副开火技能--/
 void UGA_GRBRiflePrimaryInstant::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	/** 触发技能时候的数据预准备*/
 	CheckAndSetupCacheables();
 
+	// 重制当前场景探查器的弹道扩散参数状态; 持续射击不会复位扩散
 	// Reset CurrentSpread back to 0 on Activate. Continuous fire does not reset spread.
 	mLineTraceTargetActor->ResetSpread();
 
+	/** 勒令服务器等待复制的 技能目标数据并在服务端ASC预热好索敌时刻后广播绑定好的业务事件(在这里是HandleTargetData)。客户端只需从任务的 Activate() 返回即可。如果玩家是服务器（主机），则这不会执行任何操作，因为 TargetData 从未被 RPC 处理，子弹将通过 FireBullet 事件处理。*/
 	// Tell the Server to start waiting for replicated TargetData. Client simply returns from the Task's Activate(). If the player is the Server (Host), this won't do anything since the TargetData is never RPC'd and the bullet will be handled through the FireBullet event.
 	bool bTriggerOnce = false;
 	UGRBAT_ServerWaitForClientTargetData* pAsyncTask = UGRBAT_ServerWaitForClientTargetData::ServerWaitForClientTargetData(this, FName("None"), bTriggerOnce);
@@ -463,19 +471,22 @@ void UGA_GRBRiflePrimaryInstant::ActivateAbility(const FGameplayAbilitySpecHandl
 	pAsyncTask->ReadyForActivation();
 	mServerWaitTargetDataTask = pAsyncTask;
 
+	/** 客户端即刻进行调度综合射击业务*/
 	// Client immediately fires
 	FireBullet();
 }
 
+///--@brief 检查发动技能是否成功--/
 bool UGA_GRBRiflePrimaryInstant::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {
 	// return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
 
+	// 确保多次激活副开火技能的时刻差要始终大于键鼠输入的射击间隔; 这样玩家就不能通过快速点击来非法绕过
 	// Make sure time between activations is more than time between shots so the player can't just click really fast to skirt around the time between shots.
 	if (IsValid(mGAPrimary))
 	{
 		const float& DeltaMinus = UGameplayStatics::GetTimeSeconds(this) - mTimeOfLastShot;
-		if (FMath::Abs(DeltaMinus) >= mGAPrimary->m_TimeBetweenShot)
+		if (FMath::Abs(DeltaMinus) >= mGAPrimary->Getm_TimeBetweenShot())
 		{
 			return true;
 		}
@@ -491,19 +502,22 @@ bool UGA_GRBRiflePrimaryInstant::CanActivateAbility(const FGameplayAbilitySpecHa
 	return true;
 }
 
+///--@brief 结束技能; 清理工作--/
 void UGA_GRBRiflePrimaryInstant::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
-	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 	if (IsValid(mServerWaitTargetDataTask))
 	{
 		mServerWaitTargetDataTask->EndTask();
 	}
+	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
+///--@brief 负担技能消耗的检查--/
 bool UGA_GRBRiflePrimaryInstant::GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const
 {
 	// return Super::GRBCheckCost_Implementation(Handle, ActorInfo);
 
+	// 仅承认副开火的技能SourceObject载体是挂载在枪支上的.且残余载弹量要满足单发消耗
 	if (AGRBWeapon* pGRBWeapon = Cast<AGRBWeapon>(GetSourceObject(Handle, &ActorInfo)))
 	{
 		if ((pGRBWeapon->GetPrimaryClipAmmo() >= mAmmoCost || pGRBWeapon->HasInfiniteAmmo()) && Super::GRBCheckCost_Implementation(Handle, ActorInfo))
@@ -518,6 +532,7 @@ bool UGA_GRBRiflePrimaryInstant::GRBCheckCost_Implementation(const FGameplayAbil
 	return true;
 }
 
+///--@brief 技能消耗成本扣除: 刷新残余载弹量扣除每回合发动时候的弹药消耗量--/
 void UGA_GRBRiflePrimaryInstant::GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const
 {
 	Super::GRBApplyCost_Implementation(Handle, ActorInfo, ActivationInfo);
@@ -531,24 +546,28 @@ void UGA_GRBRiflePrimaryInstant::GRBApplyCost_Implementation(const FGameplayAbil
 	}
 }
 
-void UGA_GRBRiflePrimaryInstant::ManallyKillInstantGA()
+///--@brief 手动终止技能以及异步任务--/
+void UGA_GRBRiflePrimaryInstant::ManuallyKillInstantGA()
 {
 	K2_EndAbility();
 }
 
+///--@brief 综合射击业务--/
 void UGA_GRBRiflePrimaryInstant::FireBullet()
 {
-	// Only fire bullets (generate target data) on the local player
+	// 仅承认在主控端构建技能目标数据
 	if (GetActorInfo().PlayerController->IsLocalPlayerController())
 	{
+		// 确保键鼠按下频率要大于配置好的射击间隔，否则触发失败
 		// Only fire a bullet if not on cooldown (enough time has passed >= to TimeBetweenShots from managing Ability)
-		if (FMath::Abs(UGameplayStatics::GetTimeSeconds(this) - mTimeOfLastShot) >= mGAPrimary->m_TimeBetweenShot - 0.01)
+		if (FMath::Abs(UGameplayStatics::GetTimeSeconds(this) - mTimeOfLastShot) >= mGAPrimary->Getm_TimeBetweenShot() - 0.01)
 		{
 			if (UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo))
 			{
-				// Configure reusable Line Trace Target Actor.
+				/** 组织并构建可复用的射线类型 场景探查器*/
 				if (IsValid(mSourceWeapon))
 				{
+					// 仅在第一视角下
 					if (mOwningHero->IsInFirstPersonPerspective())
 					{
 						TEnumAsByte<EGameplayAbilityTargetingLocationType::Type> LocationType = EGameplayAbilityTargetingLocationType::SocketTransform;
@@ -578,11 +597,12 @@ void UGA_GRBRiflePrimaryInstant::FireBullet()
 						                                 mFiringSpreadMax, 1, 1
 						);
 
-						// RPC TargetData to the Server
+						/** RPC 探查器的技能目标数据到服务器; 并绑定好预热索敌的回调 HandleTargetData;*/
 						UGRBAT_WaitTargetDataUsingActor* AsyncTaskNode = UGRBAT_WaitTargetDataUsingActor::WaitTargetDataWithReusableActor(this, FName("None"), EGameplayTargetingConfirmation::Instant, mLineTraceTargetActor, true);
-						AsyncTaskNode->ValidData.AddUniqueDynamic(this, &UGA_GRBRiflePrimaryInstant::HandleTargetData); // Handle shot locally - predict hit impact FX or apply damage if player is Host
+						AsyncTaskNode->ValidDataDelegate.AddUniqueDynamic(this, &UGA_GRBRiflePrimaryInstant::HandleTargetData); // Handle shot locally - predict hit impact FX or apply damage if player is Host
 						AsyncTaskNode->ReadyForActivation();
 
+						/** 刷新上次计时*/
 						mTimeOfLastShot = UGameplayStatics::GetTimeSeconds(this);
 					}
 					else
@@ -590,23 +610,36 @@ void UGA_GRBRiflePrimaryInstant::FireBullet()
 					}
 				}
 			}
-			else
+			else if (!UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo)) // 负担不起消耗就打断副开火
 			{
 				UGameplayAbility::CancelAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false);
 			}
 		}
 		else
 		{
+			// 键鼠操作频率过高,射击过快会进入异常情况
 			UE_LOG(LogTemp, Warning, TEXT("Error: Tried to fire a bullet too fast"))
 		}
 	}
 }
 
+///--@brief 双端都会调度到的 处理技能目标数据的复合逻辑入口--/
+/**
+ * 播放蒙太奇动画
+ * 伤害BUFF应用
+ * 播放诸如关联枪支火焰CueTag的所有特效
+ */
 void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDataHandle& InTargetDataHandle)
 {
+	/**
+	 * 播放蒙太奇动画
+	 * 伤害BUFF应用
+	 * 播放诸如关联枪支火焰CueTag的所有特效
+	 */
 	bool BroadcastCommitEvent = false;
 	if (UGameplayAbility::K2_CommitAbilityCost(BroadcastCommitEvent))
 	{
+		// 播放项目定制的蒙太奇.
 		PlayFireMontage();
 
 		// Functionally equivalent. Container path does have an insignificant couple more function calls.
@@ -639,10 +672,12 @@ void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDa
 	}
 	else
 	{
+		// 负担不起技能消耗就暂时打断技能.
 		UGameplayAbility::K2_CancelAbility();
 	}
 }
 
+///--@brief 播放项目定制的蒙太奇.--/
 void UGA_GRBRiflePrimaryInstant::PlayFireMontage()
 {
 	if (GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingTag) && !GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingRemovealTag))
@@ -689,6 +724,7 @@ void UGA_GRBRiflePrimaryInstant::PlayFireMontage()
 	}
 }
 
+///--@brief 触发技能时候的数据预准备--/
 void UGA_GRBRiflePrimaryInstant::CheckAndSetupCacheables()
 {
 	if (!IsValid(mSourceWeapon))
@@ -721,21 +757,28 @@ void UGA_GRBRiflePrimaryInstant::CheckAndSetupCacheables()
 		mLineTraceTargetActor = mSourceWeapon->GetLineTraceTargetActor();
 	}
 }
+#pragma endregion
 
+
+#pragma region ~ 主开火技能 ~
+///--@brief 构造器--/
 UGA_GRBRiflePrimary::UGA_GRBRiflePrimary()
 {
-	m_TimeBetweenShot = 0.1f;
-	m_AmmoCost = 1;
+	// 业务变量设置
+	m_TimeBetweenShot = 0.1f; // 射击间隔为0.1秒
+	m_AmmoCost = 1; // 技能消耗一次1颗弹药
 
+	// 设置技能输入类型为:主动开火
 	UGRBGameplayAbility::AbilityInputID = EGRBAbilityInputID::PrimaryFire;
 	UGRBGameplayAbility::AbilityID = EGRBAbilityInputID::PrimaryFire;
 
-	bActivateAbilityOnGranted = false;
-	bActivateOnInput = true;
-	bSourceObjectMustEqualCurrentWeaponToActivate = true;
-	bCannotActivateWhileInteracting = true;
+	// 设置一些技能的基础配置
+	bActivateAbilityOnGranted = false; // 禁用授权好技能后自动激活
+	bActivateOnInput = true; // 启用当检测到外部键鼠输入,自动激活技能
+	bSourceObjectMustEqualCurrentWeaponToActivate = true; // 启用当装备好武器后应用SourceObject
+	bCannotActivateWhileInteracting = true; // 启用当交互时阻止激活技能
 
-
+	// 设置诸多标签关系
 	FGameplayTagContainer TagContainer_AbilityTags;
 	FGameplayTagContainer TagContainer_CancelAbilities;
 	FGameplayTagContainer TagContainer_BlockAbilities;
@@ -750,7 +793,6 @@ UGA_GRBRiflePrimary::UGA_GRBRiflePrimary()
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.IsChanging")));
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.Dead")));
 	TagContainer_ActivationBlockedTags.AddTag(FGameplayTag::RequestGameplayTag(FName("State.KnockedDown")));
-
 	AbilityTags = TagContainer_AbilityTags;
 	CancelAbilitiesWithTag = TagContainer_CancelAbilities;
 	BlockAbilitiesWithTag = TagContainer_BlockAbilities;
@@ -758,35 +800,39 @@ UGA_GRBRiflePrimary::UGA_GRBRiflePrimary()
 	ActivationBlockedTags = TagContainer_ActivationBlockedTags;
 }
 
+///--@brief ActivateAbility--/
 void UGA_GRBRiflePrimary::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	/** 几个业务数据预处理*/
 	CheckAndSetupCacheables();
 
-	/**
-	 * First shot out of sprint is delayed 0.03 since it takes 0.03 to blend out of sprint animation in Anim BP, otherwise bullet shoots from where the gun is while sprinting.
-	 */
+	/** 按开火模式执行射击业务*/
 	if (GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(FName("State.Sprinting"))))
 	{
+		// 若之前人物正在冲刺; 则延时0.03秒触发按模式开火; 因为要预留一小段时长给冲刺动画的淡出
 		UAbilityTask_WaitDelay* const AsyncNodeTask_WaitDelay = UAbilityTask_WaitDelay::WaitDelay(this, 0.03f);
-		AsyncNodeTask_WaitDelay->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnWaitDelyBussCallback);
+		AsyncNodeTask_WaitDelay->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::ExecuteShootBussByFireMode);
 		AsyncNodeTask_WaitDelay->ReadyForActivation();
 	}
 	else
 	{
+		// 除开冲刺运动,会下一帧执行开火业务(SetTimerForNextTick)
 		UGRBAT_WaitDelayOneFrame* const AsyncNode_WaitDelayOneFrame = UGRBAT_WaitDelayOneFrame::WaitDelayOneFrame(this);
-		AsyncNode_WaitDelayOneFrame->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnWaitDelyBussCallback);
+		AsyncNode_WaitDelayOneFrame->GetOnFinishDelegate().AddUniqueDynamic(this, &UGA_GRBRiflePrimary::ExecuteShootBussByFireMode);
 		AsyncNode_WaitDelayOneFrame->ReadyForActivation();
 	}
 }
 
+///--@brief 激活条件校验--/
 bool UGA_GRBRiflePrimary::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
 {
 	bool Result = Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
 	return Result;
 }
 
+///--@brief 结束技能清理业务--/
 void UGA_GRBRiflePrimary::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	AsyncWaitDelayNode_ContinousShoot = nullptr;
@@ -794,24 +840,18 @@ void UGA_GRBRiflePrimary::EndAbility(const FGameplayAbilitySpecHandle Handle, co
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
+///--@brief 专门做的技能消耗检查; 载弹量不足以支撑本回合射击的情形,会主动激活Reload技能--/
 bool UGA_GRBRiflePrimary::GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const
 {
 	if (AGRBWeapon* const pGRBWeapon = Cast<AGRBWeapon>(GetSourceObject(Handle, &ActorInfo)))
 	{
-		bool Cond1 = (pGRBWeapon->GetPrimaryClipAmmo() >= m_AmmoCost || pGRBWeapon->HasInfiniteAmmo());
-
-		bool Cond2 = Super::GRBCheckCost_Implementation(Handle, ActorInfo) && Cond1;
-
-		if (Cond2)
+		// 残余载弹量必须大于单回合射击数
+		bool CorrectCond1 = (pGRBWeapon->GetPrimaryClipAmmo() >= m_AmmoCost || pGRBWeapon->HasInfiniteAmmo());
+		bool CorrectCond2 = Super::GRBCheckCost_Implementation(Handle, ActorInfo) && CorrectCond1;
+		// 载弹量不足以支撑本回合射击的情形,会主动激活Reload技能
+		if (!CorrectCond2)
 		{
-			return true;
-		}
-		else
-		{
-			if (UGRBBlueprintFunctionLibrary::IsPrimaryAbilityInstanceActive(ActorInfo.AbilitySystemComponent.Get(), Handle))
-			{
-			}
-			else
+			if (!UGRBBlueprintFunctionLibrary::IsPrimaryAbilityInstanceActive(ActorInfo.AbilitySystemComponent.Get(), Handle))
 			{
 				FGameplayTagContainer pTagContainer;
 				pTagContainer.AddTag(FGameplayTag::RequestGameplayTag(FName("Ability.Weapon.Reload")));
@@ -824,12 +864,11 @@ bool UGA_GRBRiflePrimary::GRBCheckCost_Implementation(const FGameplayAbilitySpec
 	return true;
 }
 
+///--@brief 业务数据预处理--/
 void UGA_GRBRiflePrimary::CheckAndSetupCacheables()
 {
-	if (IsValid(m_SourceWeapon))
-	{
-	}
-	else if (!IsValid(m_SourceWeapon))
+	// 设置武器为发动此技能的SourceObjectActor
+	if (!IsValid(m_SourceWeapon))
 	{
 		if (AGRBWeapon* const pCastGRBWeapon = Cast<AGRBWeapon>(GetCurrentSourceObject()))
 		{
@@ -837,28 +876,24 @@ void UGA_GRBRiflePrimary::CheckAndSetupCacheables()
 		}
 	}
 
-	if (UGRBBlueprintFunctionLibrary::IsAbilitySpecHandleValid(m_InstantAbilityHandle))
+	// 设置副开火技能句柄
+	if (!UGRBBlueprintFunctionLibrary::IsAbilitySpecHandleValid(m_InstantAbilityHandle))
 	{
-	}
-	else if (!UGRBBlueprintFunctionLibrary::IsAbilitySpecHandleValid(m_InstantAbilityHandle))
-	{
-		if (UGRBAbilitySystemComponent* const pGRBASCComp = Cast<UGRBAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+		if (UGRBAbilitySystemComponent* const pASC_HeroPlayerState = Cast<UGRBAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo())) // 注意这里的ASC是挂载在PlayerState上的
 		{
 			FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/BP_GA_RifleContinouslyShootInstant.BP_GA_RifleContinouslyShootInstant_C'"));
 			UClass* pBPClassTmplate = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
 			if (pBPClassTmplate)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("pClass_Actor name:%s"), *pBPClassTmplate->GetName());
-				TSubclassOf<UGameplayAbility> pParamSubclass = pBPClassTmplate;
-				m_InstantAbilityHandle = pGRBASCComp->FindAbilitySpecHandleForClass(pParamSubclass, m_SourceWeapon);
+				UE_LOG(LogTemp, Warning, TEXT("pClass_YouWant Name:%s"), *pBPClassTmplate->GetName());
+				const TSubclassOf<UGameplayAbility> pParamSubclass = pBPClassTmplate;
+				m_InstantAbilityHandle = pASC_HeroPlayerState->FindAbilitySpecHandleForClass(pParamSubclass, m_SourceWeapon); // 查找满足以下条件的技能句柄; 1.SourceObject是当前武器 2.符合指定的蓝图BP_GA_RifleContinouslyShootInstant_C
 			}
 		}
 	}
 
-	if (IsValid((m_InstantAbility)))
-	{
-	}
-	else
+	// 利用上一步设置好的副开火句柄,转化为副开火技能
+	if (!IsValid((m_InstantAbility)))
 	{
 		UGRBGameplayAbility* const pResultGameplayAbility = UGRBBlueprintFunctionLibrary::GetPrimaryAbilityInstanceFromHandle(GetAbilitySystemComponentFromActorInfo(), m_InstantAbilityHandle);
 		if (UGA_GRBRiflePrimaryInstant* const pGA_PrimaryInstant = Cast<UGA_GRBRiflePrimaryInstant>(pResultGameplayAbility))
@@ -868,12 +903,14 @@ void UGA_GRBRiflePrimary::CheckAndSetupCacheables()
 	}
 }
 
-void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
+///--@brief 按开火模式执行开火业务--/
+void UGA_GRBRiflePrimary::ExecuteShootBussByFireMode()
 {
 	if (IsValid(m_SourceWeapon))
 	{
 		if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.SemiAuto")))
 		{
+			/** 在半自动模式下 合批激活副开火技能句柄并立刻杀掉它; 接着主动终止主开火技能*/
 			bool bEndAbilityImmediately = true;
 			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
 			if (Result || !Result)
@@ -885,16 +922,17 @@ void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
 		}
 		else if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.FullAuto")))
 		{
+			/** 在全自动开火模式下 合批激活副开火技能; 合批失败则会杀掉主开火技能*/
 			bool bEndAbilityImmediately = false;
 			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
 			if (Result)
 			{
-				// End both abilities when the player releases the trigger
+				// 激活异步节点:用于检测玩家键鼠输入松开,等待触发松开回调
 				UAbilityTask_WaitInputRelease* const AsyncWaitInputReleaseNode = UAbilityTask_WaitInputRelease::WaitInputRelease(this, true);
 				AsyncWaitInputReleaseNode->OnRelease.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnReleaseBussCallback);
 				AsyncWaitInputReleaseNode->ReadyForActivation();
 
-				// Continuously fire a bullet
+				// 持续射击入口; 按射击间隔处理循环射击业务
 				AsyncWaitDelayNode_ContinousShoot = UAbilityTask_WaitDelay::WaitDelay(this, m_TimeBetweenShot);
 				AsyncWaitDelayNode_ContinousShoot->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback);
 				AsyncWaitDelayNode_ContinousShoot->ReadyForActivation();
@@ -908,13 +946,16 @@ void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
 		}
 		else if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.Burst")))
 		{
+			/** 爆炸开火模式下; 主动激活副开火技能且不中断它; 接入异步节点UAbilityTask_Repeat*/
+			/** !!! 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批*/
 			bool bEndAbilityImmediately = false;
 			bool Result = BatchRPCTryActivateAbility(m_InstantAbilityHandle, bEndAbilityImmediately);
 			if (Result)
 			{
 				// First bullet is in batch with ActivateAbility, delay for bullets 2 and 3
+				/** !!! 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批*/
 				UAbilityTask_WaitDelay* const AsyncWaitDelayNode = UAbilityTask_WaitDelay::WaitDelay(this, m_TimeBetweenShot);
-				AsyncWaitDelayNode->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::WhenFireBullets2And3Callback);
+				AsyncWaitDelayNode->OnFinish.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::PerRoundFireBurstBulletsCallback);
 				AsyncWaitDelayNode->ReadyForActivation();
 			}
 			else
@@ -926,6 +967,7 @@ void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
 		}
 		else
 		{
+			/** 未配置枪支开火模式则主动终止射击主技能*/
 			bool bReplicateEndAbility = true;
 			bool bWasCancelled = false;
 			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
@@ -933,35 +975,21 @@ void UGA_GRBRiflePrimary::OnWaitDelyBussCallback()
 	}
 }
 
+///--@brief 玩家松开键鼠输入后的回调业务--/
 void UGA_GRBRiflePrimary::OnReleaseBussCallback(float InPayload_TimeHeld)
 {
 	UE_LOG(LogTemp, Log, TEXT("停止射击子弹"));
 
-	m_InstantAbility->ManallyKillInstantGA();
+	m_InstantAbility->ManuallyKillInstantGA();
 	K2_EndAbility();
-	// bool bReplicateEndAbility = true;
-	// bool bWasCancelled = false;
-	// EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
-	// this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
+///--@brief 循环射击回调入口; 会反复递归异步任务UAbilityTask_WaitDelay--/
 void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback()
 {
 	if (UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo))
 	{
-		// FSoftObjectPath SoftObjectPaths_Actor1 = FSoftObjectPath(TEXT("/Script/Engine.Blueprint'/Game/GRBShooter/Weapons/Rifle/GA_RiflePrimaryInstant.GA_RiflePrimaryInstant_C'"));
-		// UClass* pBPClassTmplate = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
-		// if (pBPClassTmplate)
-		// {
-		// 	UFunction* pFunction = pBPClassTmplate->GetDefaultObject()->FindFunctionChecked(FName(TEXT("FireBullet")));
-		// 	if (pFunction)
-		// 	{
-		// 		// ProcessEvent(pFunction, nullptr);
-		// 	}
-		// }
-
 		m_InstantAbility->FireBullet();
-
 		UE_LOG(LogTemp, Log, TEXT("射了一发子弹"));
 		AsyncWaitDelayNode_ContinousShoot->OnFinish.RemoveAll(this);
 		AsyncWaitDelayNode_ContinousShoot->EndTask();
@@ -976,37 +1004,46 @@ void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback()
 	}
 }
 
+///--@brief 弃用--/
 void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallbackV2()
 {
 	ContinuouslyFireOneBulletCallback();
 }
 
-void UGA_GRBRiflePrimary::WhenFireBullets2And3Callback()
+///--@brief 爆炸开火模式下 除开首发合批的后两次合批走的业务--/
+///--@brief 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批--/
+void UGA_GRBRiflePrimary::PerRoundFireBurstBulletsCallback()
 {
+	/** !!! 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批*/
+	// 所以ActionCount设置为了2而不是三连发的3
 	UAbilityTask_Repeat* const AsyncNode_Repeat = UAbilityTask_Repeat::RepeatAction(this, m_TimeBetweenShot, 2);
-	AsyncNode_Repeat->OnPerformAction.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::PerformActionBussCallback);
-	AsyncNode_Repeat->OnFinished.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::RepeatNodeOnFinishBussCallback);
+	AsyncNode_Repeat->OnPerformAction.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::PerTimeBurstShootBussCallback); // 单次做的业务
+	AsyncNode_Repeat->OnFinished.AddUniqueDynamic(this, &UGA_GRBRiflePrimary::OnFinishBurstShootBussCallback); // 总共2发结束后的业务
+	AsyncNode_Repeat->ReadyForActivation();
 }
 
-void UGA_GRBRiflePrimary::PerformActionBussCallback(int32 PerformActionNumber)
+///--@brief 爆炸开火多次Repeat情形下的单次业务--/
+void UGA_GRBRiflePrimary::PerTimeBurstShootBussCallback(int32 PerformActionNumber)
 {
 	if (CheckCost(CurrentSpecHandle, CurrentActorInfo))
 	{
+		// Repeat2次,每次会调度副开火技能的射击子弹
 		m_InstantAbility->FireBullet();
 	}
 	else
 	{
-		bool bReplicateEndAbility = true;
-		bool bWasCancelled = false;
-		EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
-		this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+		// 检查消耗不满足的话(如载弹量不够),则主动杀掉副开火技能
+		m_InstantAbility->ManuallyKillInstantGA();
+		K2_EndAbility();
 	}
 }
 
-void UGA_GRBRiflePrimary::RepeatNodeOnFinishBussCallback(int32 ActionNumber)
+///--@brief 爆炸开火多次Repeat结束后的业务--/
+void UGA_GRBRiflePrimary::OnFinishBurstShootBussCallback(int32 ActionNumber)
 {
-	bool bReplicateEndAbility = true;
-	bool bWasCancelled = false;
-	EndAbility(m_InstantAbilityHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
-	this->EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, bReplicateEndAbility, bWasCancelled);
+	// 在每回合Burst开火后主动杀掉副开火技能
+	m_InstantAbility->ManuallyKillInstantGA();
+	K2_EndAbility();
 }
+
+#pragma endregion

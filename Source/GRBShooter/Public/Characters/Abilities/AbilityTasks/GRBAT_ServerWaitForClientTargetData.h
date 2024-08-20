@@ -18,7 +18,7 @@ class GRBSHOOTER_API UGRBAT_ServerWaitForClientTargetData : public UAbilityTask
 {
 	GENERATED_UCLASS_BODY()
 
-private:
+public:
 	// WaitTargetData异步节点里定义的1个委托; 负责等待即将传入的targetdata数据payload句柄
 	// 负责在蓝图里绑定异步回调
 	UPROPERTY(BlueprintAssignable)

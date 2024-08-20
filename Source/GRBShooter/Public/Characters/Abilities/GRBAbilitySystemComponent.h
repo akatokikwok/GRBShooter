@@ -99,7 +99,7 @@ public:
 	/** 从 Actor 获取能力系统组件：该方法用来快速获取一个 Actor 的能力系统组件，无需手动遍历 Actor 的组件.*/
 	static UGRBAbilitySystemComponent* GetAbilitySystemComponentFromActor(const AActor* Actor, bool LookForComponent = false);
 
-	/** 获取特定类型GA的技能句柄.*/
+	///@brief 为指定SourceObjectActor查找与其关联的蓝图金恩技能; 并返回该技能句柄
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "Abilities")
 	FGameplayAbilitySpecHandle FindAbilitySpecHandleForClass(TSubclassOf<UGameplayAbility> AbilityClass, UObject* OptionalSourceObject = nullptr);
 

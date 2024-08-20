@@ -153,7 +153,7 @@ void UGRBAbilitySystemComponent::AbilityLocalInputPressed(int32 InputID)
 	}
 }
 
-///@brief 获取特定类型GA的技能句柄.
+///@brief 为指定SourceObjectActor查找与其关联的蓝图金恩技能; 并返回该技能句柄
 FGameplayAbilitySpecHandle UGRBAbilitySystemComponent::FindAbilitySpecHandleForClass(TSubclassOf<UGameplayAbility> AbilityClass, UObject* OptionalSourceObject)
 {
 	ABILITYLIST_SCOPE_LOCK();

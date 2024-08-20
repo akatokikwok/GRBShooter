@@ -24,13 +24,16 @@ private:
 	FWaitDelayOneFrameDelegate OnFinishDelegate;
 
 public:
+	// 节点内部异步委托; 负责下一帧的业务
+	FWaitDelayOneFrameDelegate& GetOnFinishDelegate() { return OnFinishDelegate; };
+	
 	///--@brief 负责自动射击延时的AbilityTask; 仿自引擎的UAbilityTask_WaitDelay; 但是仅延时一帧--/
 	UFUNCTION(BlueprintCallable, Category = "Ability|Tasks", meta = (HidePin = "OwningAbility", DefaultToSelf = "OwningAbility", BlueprintInternalUseOnly = "TRUE"))
 	static UGRBAT_WaitDelayOneFrame* WaitDelayOneFrame(UGameplayAbility* OwningAbility);
 
 	///--@brief 激活节点--/
 	virtual void Activate() override;
-
+	
 private:
 	///--@brief 给下一帧的tick绑定业务回调--/
 	void OnDelayFinishCallback();

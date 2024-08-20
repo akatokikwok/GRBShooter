@@ -18,4 +18,10 @@ class GRBSHOOTER_API AGRBHeroCharacter : public AGRBCharacterBase
 public:
 	UFUNCTION(BlueprintCallable, Category = "GASShooter|Inventory")
 	AGRBWeapon* GetCurrentWeapon() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GASShooter|GSHeroCharacter")
+	virtual bool IsInFirstPersonPerspective() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
+	class USkeletalMeshComponent* GetFirstPersonMesh() const;
 };

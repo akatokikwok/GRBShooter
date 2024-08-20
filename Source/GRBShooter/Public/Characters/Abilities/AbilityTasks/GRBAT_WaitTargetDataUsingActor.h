@@ -23,7 +23,7 @@ class GRBSHOOTER_API UGRBAT_WaitTargetDataUsingActor : public UAbilityTask
 {
 	GENERATED_UCLASS_BODY()
 
-private:
+public:
 #pragma region ~ 委托 ~
 	// 蓝图委托: 当本异步节点接收到探查器数据选中
 	UPROPERTY(BlueprintAssignable)
