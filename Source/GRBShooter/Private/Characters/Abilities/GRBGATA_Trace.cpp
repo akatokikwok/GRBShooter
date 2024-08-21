@@ -104,7 +104,7 @@ void AGRBGATA_Trace::ConfirmTargetingAndContinue()
 		TArray<FHitResult> HitResults = PerformTrace(SourceActor);
 		// 为一组命中hit制作 目标数据句柄 并存储它们
 		FGameplayAbilityTargetDataHandle Handle = MakeTargetData(HitResults);
-		// 为探查器的 "ready"事件广播; 并传入组好的payload 目标数据句柄
+		// 为探查器的 "已确认选择射击目标"事件广播; 并传入组好的payload 目标数据句柄
 		AGameplayAbilityTargetActor::TargetDataReadyDelegate.Broadcast(Handle);
 
 #if ENABLE_DRAW_DEBUG

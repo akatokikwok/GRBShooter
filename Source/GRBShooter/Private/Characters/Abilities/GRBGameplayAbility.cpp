@@ -456,6 +456,8 @@ void UGA_GRBRiflePrimaryInstant::ActivateAbility(const FGameplayAbilitySpecHandl
 {
 	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	/** 触发技能时候的数据预准备*/
 	CheckAndSetupCacheables();
 
@@ -541,6 +543,7 @@ void UGA_GRBRiflePrimaryInstant::GRBApplyCost_Implementation(const FGameplayAbil
 	{
 		if (!pGRBWeapon->HasInfiniteAmmo())
 		{
+			// 子弹扣除机制在这里
 			pGRBWeapon->SetPrimaryClipAmmo(pGRBWeapon->GetPrimaryClipAmmo() - mAmmoCost);
 		}
 	}
@@ -549,12 +552,16 @@ void UGA_GRBRiflePrimaryInstant::GRBApplyCost_Implementation(const FGameplayAbil
 ///--@brief 手动终止技能以及异步任务--/
 void UGA_GRBRiflePrimaryInstant::ManuallyKillInstantGA()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	K2_EndAbility();
 }
 
 ///--@brief 综合射击业务--/
 void UGA_GRBRiflePrimaryInstant::FireBullet()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	// 仅承认在主控端构建技能目标数据
 	if (GetActorInfo().PlayerController->IsLocalPlayerController())
 	{
@@ -570,23 +577,23 @@ void UGA_GRBRiflePrimaryInstant::FireBullet()
 					// 仅在第一视角下
 					if (mOwningHero->IsInFirstPersonPerspective())
 					{
+						/** 构建和射线探查器关联的 技能目标位置信息*/
 						TEnumAsByte<EGameplayAbilityTargetingLocationType::Type> LocationType = EGameplayAbilityTargetingLocationType::SocketTransform;
 						FTransform LiteralTransform = FTransform();
 						TObjectPtr<AActor> SourceActor = TObjectPtr<AActor>();
 						TObjectPtr<UMeshComponent> SourceComponent = TObjectPtr<UMeshComponent>(Weapon1PMesh);
 						TObjectPtr<UGameplayAbility> SourceAbility = nullptr;
 						FName SourceSocketName = FName("MuzzleFlashSocket");
-
 						FGameplayAbilityTargetingLocationInfo pLocationInfo = FGameplayAbilityTargetingLocationInfo();
 						pLocationInfo.LocationType = LocationType;
 						pLocationInfo.LiteralTransform = LiteralTransform;
 						pLocationInfo.SourceActor = SourceActor;
-						pLocationInfo.SourceComponent = SourceComponent;
+						pLocationInfo.SourceComponent = SourceComponent; // 1P的枪皮
 						pLocationInfo.SourceAbility = SourceAbility;
-						pLocationInfo.SourceSocketName = SourceSocketName;
-
-
+						pLocationInfo.SourceSocketName = SourceSocketName; // 枪口的Socket
 						mTraceStartLocation = pLocationInfo;
+
+						/** 为射线探查器配置一系列武器数据和检测目标数据*/
 						mTraceFromPlayerViewPointg = true;
 						mLineTraceTargetActor->Configure(mTraceStartLocation, mAimingTag, mAimingRemovealTag,
 						                                 FCollisionProfileName(FName("Projectile")), FGameplayTargetDataFilterHandle(), nullptr,
@@ -596,6 +603,49 @@ void UGA_GRBRiflePrimaryInstant::FireBullet()
 						                                 mWeaponSpread, mAimingSpreadMod, mFiringSpreadIncrement,
 						                                 mFiringSpreadMax, 1, 1
 						);
+
+						//---------------------------------------------------  ------------------------------------------------
+						//---------------------------------------------------  ------------------------------------------------
+
+						/**
+						 * 可复用的异步等候技能目标数据 选中/反选 的 任务节点
+						 * WaitTargetDataUsingActor管控 三部分重要概念
+						 *  1.场景探查器 TraceActor 2. 节点外部绑定业务 ValidDataDelegate/CancelledDelegate 3.选中目标的模式 Instant/UserConfirmed/CustomMulti
+						 * 
+						 * 异步节点Activate的时候
+						 * TargetActor->TargetDataReadyDelegate-探查器已确认目标事件              <=> Callback: 仅本地预测 把技能目标数据RPC到服务器 接着会广播异步节点外部绑好的确认目标逻辑(HandleTargetData)
+						 * TargetActor->CanceledDelegate-探查器反选目标事件                       <=> Callback: 仅本地预测 RPC到服务器勒令反选目标 接着会广播异步节点外绑好的取消目标逻辑
+						 *
+						 * 
+						 * 非本机客户端 这个端的ASC确认目标->AbilityTargetDataSetDelegate          <=> Callback: 剔除意外情况非主机端未收到目标数据,自动反选; 否则正常广播外部的选中业务
+						 * 非本机客户端 这个端的ASC反选目标->AbilityTargetDataCancelledDelegate    <=> Callback: 广播异步节点外绑好的取消目标逻辑
+						 * 非本机客户端会 等待远程目标数据任务流 SetWaitingOnRemotePlayerData()
+						 *
+						 *  TargetActor->StartTargeting: 开始探查器的探查准备工作并开启tick
+						 *  接下来按 目标选中模式 ConfirmationType == Instant亦或是UserConfirmed来决策探查器的后续制作目标句柄的复杂业务
+						 *  假若是瞬发的Instant 选择模式
+						 *		间接触发多态的 AGRBGATA_Trace::ConfirmTargetingAndContinue()
+						 * 		执行探查器的核心业务; 三步走
+						 * 		执行探查器PerformTrace-- TArray<FHitResult> HitResults = PerformTrace(SourceActor);
+						 * 		为一组命中hit制作 目标数据句柄 并存储它们-- FGameplayAbilityTargetDataHandle Handle = MakeTargetData(HitResults);
+						 * 		为探查器的 "ready"事件广播; 并传入组好的payload 目标数据句柄-- AGameplayAbilityTargetActor::TargetDataReadyDelegate.Broadcast(Handle);
+						 *  假若是UserConfirmed多阶段选择模式
+						 *		TargetActor->BindToConfirmCancelInputs()
+						 */
+
+						//---------------------------------------------------  ------------------------------------------------
+						//---------------------------------------------------  ------------------------------------------------
+
+						/**
+						 * 官方注释明确说每次都重新生成TargetActor是低效的，复用才是王道;
+						 * GARBhooter为了实现复用做了以下修改定制版本的探查器 AGRBGATA_Trace
+						 * 1.实现休眠状态
+						 *		增加StopTargeting方法，与StartTargeting形成一对控制Actor休眠状态的函数，相当于反初始化，为的是进入休眠状态，以备下次使用。
+						 * 2.避免Actor被销毁
+						 *		重写CancelTargeting——避免取消操作时被销毁
+						 *		构造函数中，bDestroyOnConfirmation = false——避免确认目标时被销毁
+						 *
+						 */
 
 						/** RPC 探查器的技能目标数据到服务器; 并绑定好预热索敌的回调 HandleTargetData;*/
 						UGRBAT_WaitTargetDataUsingActor* AsyncTaskNode = UGRBAT_WaitTargetDataUsingActor::WaitTargetDataWithReusableActor(this, FName("None"), EGameplayTargetingConfirmation::Instant, mLineTraceTargetActor, true);
@@ -631,6 +681,7 @@ void UGA_GRBRiflePrimaryInstant::FireBullet()
  */
 void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDataHandle& InTargetDataHandle)
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
 	/**
 	 * 播放蒙太奇动画
 	 * 伤害BUFF应用
@@ -647,19 +698,25 @@ void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDa
 		UClass* pBP_RifleDamageGE = UAssetManager::GetStreamableManager().LoadSynchronous<UClass>(SoftObjectPaths_Actor1);
 		if (pBP_RifleDamageGE)
 		{
+			/** 用蓝图组建1个伤害BUFF句柄*/
 			const FGameplayEffectSpecHandle& RifleDamageGESpecHandle = UGameplayAbility::MakeOutgoingGameplayEffectSpec(pBP_RifleDamageGE, 1);
 			const FGameplayTag& CauseTag = FGameplayTag::RequestGameplayTag(FName("Data.Damage"));
 			const float& Magnitude = mBulletDamage;
+			// 通过使用 AssignTagSetByCallerMagnitude，你可以在运行时动态地控制和调整 GameplayEffect 的具体数值
+			// 此蓝图伤害BUFF上 挂载的Executions内有一个元素挂载了GRBDamageExecutionCalc; 专门用于计算击穿护甲和生命值的综合计算
+			// 此蓝图伤害BUFF上 的Components选项内也设置了1个元素 是UAssetTagsGameplayEffectComponent型,用于标记BUFF带来的BUFF自身资产标签 Effect.Damage.CanHeadShot
 			const FGameplayEffectSpecHandle& TheBuffToApply = UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(RifleDamageGESpecHandle, CauseTag, Magnitude);
 
+			/** 把伤害BUFF应用到技能目标数据上( FGameplayAbilityTargetDataHandle&)*/
 			const TArray<FActiveGameplayEffectHandle>& ActiveGEHandles = K2_ApplyGameplayEffectSpecToTarget(TheBuffToApply, InTargetDataHandle);
 
-			const FGameplayEffectContextHandle& ContextHandle = UAbilitySystemBlueprintLibrary::GetEffectContext(TheBuffToApply);
-
+			/** 从射线探查器那边加工过的技能目标数据里 解算出HitResult并手动附着在 伤害BUFF的上下文上*/
 			bool Reset = false;
 			const FHitResult& HitResultApply = UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(InTargetDataHandle, 0);
+			const FGameplayEffectContextHandle& ContextHandle = UAbilitySystemBlueprintLibrary::GetEffectContext(TheBuffToApply);
 			UAbilitySystemBlueprintLibrary::EffectContextAddHitResult(ContextHandle, HitResultApply, Reset);
 
+			/** 最后触发关联这张伤害BUFF的所有携带"GameplayCue.Weapon.Rifle.Fire"标签的GC蓝图特效*/
 			const FGameplayTag& CueTag = FGameplayTag::RequestGameplayTag(FName("GameplayCue.Weapon.Rifle.Fire"));
 			const FGameplayCueParameters CueParameters = UAbilitySystemBlueprintLibrary::MakeGameplayCueParameters(0, 0, ContextHandle,
 			                                                                                                       FGameplayTag::EmptyTag, FGameplayTag::EmptyTag, FGameplayTagContainer(),
@@ -680,6 +737,8 @@ void UGA_GRBRiflePrimaryInstant::HandleTargetData(const FGameplayAbilityTargetDa
 ///--@brief 播放项目定制的蒙太奇.--/
 void UGA_GRBRiflePrimaryInstant::PlayFireMontage()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	if (GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingTag) && !GetAbilitySystemComponentFromActorInfo()->HasMatchingGameplayTag(mAimingRemovealTag))
 	{
 		if (UAnimMontage* pMontageAsset = LoadObject<UAnimMontage>(mOwningHero, TEXT("/Script/Engine.AnimMontage'/Game/ShooterGame/Animations/FPP_Animations/FPP_RifleAimFire_Montage.FPP_RifleAimFire_Montage'")))
@@ -727,6 +786,8 @@ void UGA_GRBRiflePrimaryInstant::PlayFireMontage()
 ///--@brief 触发技能时候的数据预准备--/
 void UGA_GRBRiflePrimaryInstant::CheckAndSetupCacheables()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	if (!IsValid(mSourceWeapon))
 	{
 		mSourceWeapon = Cast<AGRBWeapon>(GetCurrentSourceObject());
@@ -804,6 +865,8 @@ UGA_GRBRiflePrimary::UGA_GRBRiflePrimary()
 void UGA_GRBRiflePrimary::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
 {
 	// Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
 
 	/** 几个业务数据预处理*/
 	CheckAndSetupCacheables();
@@ -906,6 +969,8 @@ void UGA_GRBRiflePrimary::CheckAndSetupCacheables()
 ///--@brief 按开火模式执行开火业务--/
 void UGA_GRBRiflePrimary::ExecuteShootBussByFireMode()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	if (IsValid(m_SourceWeapon))
 	{
 		if (m_SourceWeapon->FireMode == FGameplayTag::RequestGameplayTag(FName("Weapon.Rifle.FireMode.SemiAuto")))
@@ -987,6 +1052,8 @@ void UGA_GRBRiflePrimary::OnReleaseBussCallback(float InPayload_TimeHeld)
 ///--@brief 循环射击回调入口; 会反复递归异步任务UAbilityTask_WaitDelay--/
 void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallback()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	if (UGameplayAbility::CheckCost(CurrentSpecHandle, CurrentActorInfo))
 	{
 		m_InstantAbility->FireBullet();
@@ -1014,6 +1081,8 @@ void UGA_GRBRiflePrimary::ContinuouslyFireOneBulletCallbackV2()
 ///--@brief 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批--/
 void UGA_GRBRiflePrimary::PerRoundFireBurstBulletsCallback()
 {
+	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
+
 	/** !!! 注意这里的机制射击; 爆炸射击(以三连发为例), 这回合的第1发是走的半自动的第一波合批, 第2发和第3发才是走的下下一波合批*/
 	// 所以ActionCount设置为了2而不是三连发的3
 	UAbilityTask_Repeat* const AsyncNode_Repeat = UAbilityTask_Repeat::RepeatAction(this, m_TimeBetweenShot, 2);
