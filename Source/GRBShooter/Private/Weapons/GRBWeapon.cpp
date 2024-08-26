@@ -1,15 +1,21 @@
 // Copyright 2024 GRB.
 
+
 #include "Weapons/GRBWeapon.h"
 #include "Characters/Abilities/GRBAbilitySystemComponent.h"
 #include "Characters/Abilities/GRBAbilitySystemGlobals.h"
 #include "Characters/Abilities/GRBGameplayAbility.h"
+#include "Characters/Abilities/GRBGATA_LineTrace.h"
+#include "Characters/Abilities/GRBGATA_SphereTrace.h"
 #include "Characters/Heroes/GRBHeroCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GRBBlueprintFunctionLibrary.h"
 #include "Net/UnrealNetwork.h"
 #include "Player/GRBPlayerController.h"
+
+// 将网络类型转化为字符串
+#define GET_ACTOR_ROLE_FSTRING(Actor) *(FindObject<UEnum>(nullptr, TEXT("/Script/Engine.ENetRole"), true)->GetNameStringByValue(Actor->GetLocalRole()))
 
 AGRBWeapon::AGRBWeapon()
 {
@@ -104,11 +110,6 @@ void AGRBWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-UAbilitySystemComponent* AGRBWeapon::GetAbilitySystemComponent() const
-{
-	return nullptr;
-}
-
 void AGRBWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -124,9 +125,103 @@ void AGRBWeapon::NotifyActorBeginOverlap(AActor* Other)
 	Super::NotifyActorBeginOverlap(Other);
 }
 
-///--@brief 复位武器开火模式Tag--/
-void AGRBWeapon::ResetWeapon()
+UAbilitySystemComponent* AGRBWeapon::GetAbilitySystemComponent() const
 {
-	FireMode = DefaultFireMode;
-	StatusText = DefaultStatusText;
+	return nullptr;
+}
+
+USkeletalMeshComponent* AGRBWeapon::GetWeaponMesh1P() const
+{
+	return WeaponMesh1P;
+}
+
+USkeletalMeshComponent* AGRBWeapon::GetWeaponMesh3P() const
+{
+	return WeaponMesh3P;
+}
+
+void AGRBWeapon::AddAbilities()
+{
+	// 确保枪有装备了ASC的枪手
+	if (!IsValid(OwningCharacter) || !OwningCharacter->GetAbilitySystemComponent())
+	{
+		return;
+	}
+	UGRBAbilitySystemComponent* GRBASC = Cast<UGRBAbilitySystemComponent>(OwningCharacter->GetAbilitySystemComponent());
+
+	// 意外情况下,打印ASC的复制类型
+	if (!GRBASC)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s %s Role: %s ASC is null"), *FString(__FUNCTION__), *GetName(), GET_ACTOR_ROLE_FSTRING(OwningCharacter));
+		return;
+	}
+
+	// 仅承认在服务端授权 枪支携带的技能
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	// 初始化这些蓝图技能(如持续射击, 换弹)并注册到技能句柄池子内
+	for (TSubclassOf<UGRBGameplayAbility>& Ability : Abilities)
+	{
+		AbilitySpecHandles.Add(GRBASC->GiveAbility(
+			FGameplayAbilitySpec(
+				Ability,
+				GetAbilityLevel(Ability.GetDefaultObject()->AbilityID), // 该技能等级
+				static_cast<int32>(Ability.GetDefaultObject()->AbilityInputID), // 该技能输入ID, 每个蓝图技能都有自己独一无二的技能输入ID, 如PrimaryFire, Reload
+				this)
+		));
+	}
+}
+
+void AGRBWeapon::RemoveAbilities()
+{
+	if (!IsValid(OwningCharacter) || !OwningCharacter->GetAbilitySystemComponent())
+	{
+		return;
+	}
+	UGRBAbilitySystemComponent* GRBASC = Cast<UGRBAbilitySystemComponent>(OwningCharacter->GetAbilitySystemComponent());
+	if (!GRBASC)
+	{
+		return;
+	}
+	// Remove abilities, but only on the server	
+	if (GetLocalRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	// 从武器句柄池子内移除所有蓝图装配的 技能句柄
+	for (FGameplayAbilitySpecHandle& SpecHandle : AbilitySpecHandles)
+	{
+		GRBASC->ClearAbility(SpecHandle);
+	}
+}
+
+void AGRBWeapon::SetOwningCharacter(AGRBHeroCharacter* InOwningCharacter)
+{
+	OwningCharacter = InOwningCharacter;
+	if (OwningCharacter)
+	{
+		// Called when added to inventory
+		AbilitySystemComponent = Cast<UGRBAbilitySystemComponent>(OwningCharacter->GetAbilitySystemComponent());
+		SetOwner(InOwningCharacter);
+		AttachToComponent(OwningCharacter->GetRootComponent(), FAttachmentTransformRules::KeepRelativeTransform);
+		CollisionComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+		// 已装备其他枪支的情形;
+		if (OwningCharacter->GetCurrentWeapon() != this)
+		{
+			WeaponMesh3P->CastShadow = false;
+			WeaponMesh3P->SetVisibility(true, true);
+			WeaponMesh3P->SetVisibility(false, true);
+		}
+	}
+	else
+	{
+		AbilitySystemComponent = nullptr;
+		SetOwner(nullptr);
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	}
 }

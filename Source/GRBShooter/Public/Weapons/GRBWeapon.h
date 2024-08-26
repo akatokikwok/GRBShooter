@@ -10,41 +10,71 @@
 #include "GRBShooter/GRBShooter.h"
 #include "GRBWeapon.generated.h"
 
+class AGRBGATA_LineTrace;
+class AGRBGATA_SphereTrace;
 class AGRBHeroCharacter;
-class UAbilitySystemComponent;
+class UAnimMontage;
+class UGRBAbilitySystemComponent;
+class UGRBGameplayAbility;
+class UPaperSprite;
+class USkeletalMeshComponent;
 
+/** 武器载弹量变化的通用委托.*/
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FWeaponAmmoChangedDelegate, int32, OldValue, int32, NewValue);
+
+/**
+ * 武器类
+ */
 UCLASS(Blueprintable, BlueprintType)
 class GRBSHOOTER_API AGRBWeapon : public AActor, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
+private:
+	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
+	FWeaponAmmoChangedDelegate OnPrimaryClipAmmoChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
+	FWeaponAmmoChangedDelegate OnMaxPrimaryClipAmmoChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
+	FWeaponAmmoChangedDelegate OnSecondaryClipAmmoChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
+	FWeaponAmmoChangedDelegate OnMaxSecondaryClipAmmoChanged;
+
 public:
 	AGRBWeapon();
 	virtual void BeginPlay() override;
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
-	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void PreReplication(IRepChangedPropertyTracker& ChangedPropertyTracker) override;
 	virtual void NotifyActorBeginOverlap(class AActor* Other) override;
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 public:
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GRBShooter|GRBWeapon")
+	// 蓝图覆写, 获取这把武器的枪皮1P
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSWeapon")
 	virtual USkeletalMeshComponent* GetWeaponMesh1P() const;
 
-	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GRBShooter|GRBWeapon")
+	// 蓝图覆写, 获取这把武器的枪皮3P
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSWeapon")
 	virtual USkeletalMeshComponent* GetWeaponMesh3P() const;
 
+	// 添加蓝图内一组配置好的技能到池子
+	virtual void AddAbilities();
+
+	// 从技能池子内移除所有技能
+	virtual void RemoveAbilities();
+
+	// 接口: 给特定pawn配置与本枪支武器关联.
 	void SetOwningCharacter(AGRBHeroCharacter* InOwningCharacter);
-	
+
 	// Called when the player equips this weapon
 	virtual void Equip();
 
 	// Called when the player unequips this weapon
 	virtual void UnEquip();
-	
-	virtual void AddAbilities();
-
-	virtual void RemoveAbilities();
 
 	virtual int32 GetAbilityLevel(EGRBAbilityInputID AbilityID);
 
@@ -92,7 +122,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GRBShooter|Animation")
 	UAnimMontage* GetEquip3PMontage() const;
-	
+
 	UFUNCTION(BlueprintCallable, Category = "GRBShooter|Audio")
 	class USoundCue* GetPickupSound() const;
 
@@ -123,7 +153,6 @@ protected:
 	UFUNCTION()
 	virtual void OnRep_MaxSecondaryClipAmmo(int32 OldMaxSecondaryClipAmmo);
 
-	
 public:
 	// 依据拾取模式设定是否启用碰撞, 枪支作为场景道具时候是拾取碰撞, 作为直接生成物的时候关闭碰撞
 	// Whether or not to spawn this weapon with collision enabled (pickup mode).
@@ -140,7 +169,7 @@ public:
 	// 保存当异常情况发生会阻碍拾取武器的标签组
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "GRBShooter|GRBWeapon")
 	FGameplayTagContainer RestrictedPickupTags;
-	
+
 	// UI HUD Primary Icon when equipped. Using Sprites because of the texture atlas from ShooterGame.
 	UPROPERTY(BlueprintReadOnly, EditAnywhere, Category = "GRBShooter|UI")
 	UPaperSprite* PrimaryIcon;
@@ -170,18 +199,6 @@ public:
 	// Things like fire mode for rifle
 	UPROPERTY(BlueprintReadWrite, VisibleInstanceOnly, Category = "GRBShooter|GRBWeapon")
 	FText StatusText;
-
-	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
-	FWeaponAmmoChangedDelegate OnPrimaryClipAmmoChanged;
-
-	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
-	FWeaponAmmoChangedDelegate OnMaxPrimaryClipAmmoChanged;
-
-	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
-	FWeaponAmmoChangedDelegate OnSecondaryClipAmmoChanged;
-
-	UPROPERTY(BlueprintAssignable, Category = "GRBShooter|GRBWeapon")
-	FWeaponAmmoChangedDelegate OnMaxSecondaryClipAmmoChanged;
 
 protected:
 	UPROPERTY()
@@ -246,9 +263,11 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "GRBShooter|GRBWeapon")
 	AGRBHeroCharacter* OwningCharacter;
 
+	// 武器/枪支 会在蓝图内携带一些技能
 	UPROPERTY(EditAnywhere, Category = "GRBShooter|GRBWeapon")
 	TArray<TSubclassOf<UGRBGameplayAbility>> Abilities;
 
+	// 武器/枪支 会在蓝图内携带一些技能(句柄类型)
 	UPROPERTY(BlueprintReadOnly, Category = "GRBShooter|GRBWeapon")
 	TArray<FGameplayAbilitySpecHandle> AbilitySpecHandles;
 
