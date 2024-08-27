@@ -432,3 +432,158 @@ private:
 	UPROPERTY()
 	class UAbilityTask_WaitDelay* AsyncWaitDelayNode_ContinousShoot = nullptr;
 };
+
+
+
+
+//--------------------------------------------------- 火箭筒 ------------------------------------------------
+//--------------------------------------------------- 火箭筒 ------------------------------------------------
+
+
+/**
+ * 火箭筒开火副技能;
+ * 和UGA_GRBRocketLauncherPrimary主射击技能搭配使用;
+ */
+UCLASS()
+class GRBSHOOTER_API UGA_GRBRocketLauncherPrimaryInstant : public UGRBGameplayAbility
+{
+	GENERATED_BODY()
+
+public:
+	UGA_GRBRocketLauncherPrimaryInstant();
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+
+	///--@brief 负担技能消耗的检查--/
+	virtual bool GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const override;
+
+	///--@brief 技能消耗成本扣除: 刷新残余载弹量扣除每回合发动时候的弹药消耗量--/
+	virtual void GRBApplyCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
+public:
+	// 每回合/每次射击子弹的调度业务
+	UFUNCTION(BlueprintCallable)
+	void FireRocket();
+
+	// 手动终止技能以及异步任务
+	UFUNCTION(BlueprintCallable)
+	void ManuallyKillInstantGA();
+
+private:
+	///--@brief 双端都会调度到的 处理技能目标数据的复合逻辑入口--/
+	/**
+ 	 * 播放蒙太奇动画
+ 	 * 伤害BUFF应用
+ 	 * 播放诸如关联枪支火焰CueTag的所有特效
+ 	 */
+	UFUNCTION(BlueprintCallable)
+	void HandleTargetData(const FGameplayAbilityTargetDataHandle& InTargetDataHandle);
+
+	// 播放项目定制的蒙太奇.
+	UFUNCTION(BlueprintCallable)
+	void PlayFireMontage();
+
+	// 触发技能时候的数据预准备
+	UFUNCTION(BlueprintCallable)
+	void CheckAndSetupCacheables();
+
+public:
+	// 武器1P视角下的枪皮
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class USkeletalMeshComponent* Weapon1PMesh = nullptr;
+
+	// 武器3P视角下的枪皮
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class USkeletalMeshComponent* Weapon3PMesh = nullptr;
+
+	// 开火枪支
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBWeapon* mSourceWeapon = nullptr;
+
+	// 枪手
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBHeroCharacter* mOwningHero = nullptr;
+
+	// 主开火技能
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class UGA_GRBRocketLauncherPrimary* mGAPrimary = nullptr;
+
+	// 异步任务: 服务器等待客户端发送来的目标数据并执行绑定的"索敌目标"委托
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class UGRBAT_ServerWaitForClientTargetData* mServerWaitTargetDataTask = nullptr;
+
+	// 上次的射击时刻
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mTimeOfLastShot = 0.f;
+
+	// 单回合射击消耗的弹量
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	int32 mAmmoCost = 1;
+
+	// 单发火箭筒弹丸伤害值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	float mRocketDamage = 60.0f;
+
+	// 和技能目标数据强关联的目标位置信息
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	struct FGameplayAbilityTargetingLocationInfo mTraceStartLocation;
+
+	// 是否启用从视角摄像机追踪射线-默认为否
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	bool mTraceFromPlayerViewPointg = false;
+
+	// 副开火技能会用到的场景探查器
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="GRBPrimaryInstantBussiness")
+	class AGRBGATA_LineTrace* mLineTraceTargetActor = nullptr;
+};
+
+
+/**
+ * 火箭筒的开火主技能
+ */
+UCLASS(Blueprintable, BlueprintType)
+class GRBSHOOTER_API UGA_GRBRocketLauncherPrimary : public UGRBGameplayAbility
+{
+	GENERATED_BODY()
+
+public:
+	UGA_GRBRocketLauncherPrimary();
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+
+	virtual bool GRBCheckCost_Implementation(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo& ActorInfo) const override;
+
+	const float& Getm_TimeBetweenShot() const { return m_TimeBetweenShot; }
+
+protected:
+	///--@brief 业务数据预处理--/
+	void CheckAndSetupCacheables();
+
+private:
+	///--@brief 按开火模式执行开火业务--/
+	UFUNCTION()
+	void ExecuteShootBussByFireMode();
+
+protected:
+	// 与技能相关联的武器
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="RocketLauncherPrimary|Buss")
+	class AGRBWeapon* m_SourceWeapon = nullptr;
+
+	// 射击间隔时长, 蓝图可配置
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RocketLauncherPrimary|Buss")
+	float m_TimeBetweenShot = 0.3f;
+
+	// 与开火主技能关联的 Instant副技能句柄
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="RocketLauncherPrimary|Buss")
+	struct FGameplayAbilitySpecHandle m_InstantAbilityHandle;
+
+	// 与开火主技能关联的 Instant副技能
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category="RocketLauncherPrimary|Buss")
+	class UGA_GRBRocketLauncherPrimaryInstant* m_InstantAbility = nullptr;
+
+	// 单次射击消耗的子弹个数
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="RocketLauncherPrimary|Buss")
+	int32 m_AmmoCost = 1;
+};
