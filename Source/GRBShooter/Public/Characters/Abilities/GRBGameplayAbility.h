@@ -434,8 +434,6 @@ private:
 };
 
 
-
-
 //--------------------------------------------------- 火箭筒 ------------------------------------------------
 //--------------------------------------------------- 火箭筒 ------------------------------------------------
 
@@ -732,18 +730,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBSecondaryInstantBussiness")
 	float mRocketDamage = 60.0f;
 
-	//
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBSecondaryInstantBussiness")
+	// 索敌数据销毁后再次StartTargeting的容忍延迟间隔时长
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GSSecondaryInstantBussiness")
 	float mTimeToStartTargetingAgain = 0.4f;
 
-	//
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBSecondaryInstantBussiness")
+	// 多个目标锁定后重发多次发射导弹,每次之间的间隔
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GSSecondaryInstantBussiness")
 	float mTimeBetweenFastRockets = 0.2f;
 
-	// 射击间隔
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBSecondaryInstantBussiness")
+	// 射击间隔(键鼠点按最低容忍间隔)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GSSecondaryInstantBussiness")
 	float mTimeBetweenShots = 0.4f;
-
+	
 	// 上次射击的具体时刻
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GRBSecondaryInstantBussiness")
 	float mTimeOfLastShot = 0.0f;

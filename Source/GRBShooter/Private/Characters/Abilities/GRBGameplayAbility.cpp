@@ -23,6 +23,8 @@
 #include "Player/GRBPlayerController.h"
 #include "Weapons/GRBProjectile.h"
 #include "Weapons/GRBWeapon.h"
+#include "UI/GRBHUDReticle.h"
+
 
 UGRBGameplayAbility::UGRBGameplayAbility()
 {
@@ -1743,7 +1745,7 @@ UGA_GRBRocketLauncherSecondary::UGA_GRBRocketLauncherSecondary()
 	{
 		mGE_AimingRemoval_Class = pClass;
 	}
-	if (UClass* pClass = LoadClass<UGameplayEffect>(nullptr, TEXT("/Script/UMGEditor.WidgetBlueprint'/Game/GRBShooter/UI/HUDReticles/HUDReticle_Spread.HUDReticle_Spread_C'")))
+	if (UClass* pClass = LoadClass<UGRBHUDReticle>(nullptr, TEXT("/Script/UMGEditor.WidgetBlueprint'/Game/GRBShooter/UI/HUDReticles/HUDReticle_Spread.HUDReticle_Spread_C'")))
 	{
 		mAimingHUDReticle = pClass;
 	}
@@ -1756,7 +1758,7 @@ UGA_GRBRocketLauncherSecondary::UGA_GRBRocketLauncherSecondary()
 	mTimeBetweenShots = 0.4f;
 	mTimeOfLastShot = 0.0f; // 上次的射击时刻
 	mAmmoCost = 1; // 单回合射击消耗的弹量 1
-	mMaxTargets = 2.0f;
+	mMaxTargets = 3.0f; // 最大索敌上限是3个敌人(会绘制UI)
 
 	/** 配置技能输入ID*/
 	UGRBGameplayAbility::AbilityInputID = EGRBAbilityInputID::SecondaryFire; // 配置为副开火/瞄准
@@ -2076,8 +2078,8 @@ void UGA_GRBRocketLauncherSecondary::HandleTargetData(const FGameplayAbilityTarg
 	UAbilityTask_Repeat* const RepeatNode = UAbilityTask_Repeat::RepeatAction(this, mTimeBetweenFastRockets, SearchEnemyNums);
 	RepeatNode->OnPerformAction.AddUniqueDynamic(this, &UGA_GRBRocketLauncherSecondary::HandleTargetData_PerformAction);
 	RepeatNode->OnFinished.AddUniqueDynamic(this, &UGA_GRBRocketLauncherSecondary::HandleTargetData_OnFinishFireHomingRocketBullet);
-	mFireRocketRepeatActionTask = RepeatNode;
 	RepeatNode->ReadyForActivation();
+	mFireRocketRepeatActionTask = RepeatNode;
 }
 
 void UGA_GRBRocketLauncherSecondary::HandleTargetDataCancelled(const FGameplayAbilityTargetDataHandle& InTargetDataHandle)
@@ -2107,7 +2109,7 @@ void UGA_GRBRocketLauncherSecondary::HandleTargetData_PerformAction(const int32 
 				const float& Magnitude = mRocketDamage;
 				const FGameplayEffectSpecHandle& TheBuffToApply = UAbilitySystemBlueprintLibrary::AssignTagSetByCallerMagnitude(RocketLauncherDamageBuffHandle, CauseTag, Magnitude);
 				//
-				const FHitResult& TraceHit = UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(CachedTargetDataHandleWhenConfirmed, 0);
+				const FHitResult& TraceHit = UAbilitySystemBlueprintLibrary::GetHitResultFromTargetData(CachedTargetDataHandleWhenConfirmed, InActionNumber);
 				const FRotator& LookAtRotation = UKismetMathLibrary::FindLookAtRotation(TraceHit.TraceStart, TraceHit.Location);
 				// 生成追踪弹
 				if (mOwningHero->HasAuthority())
@@ -2128,7 +2130,7 @@ void UGA_GRBRocketLauncherSecondary::HandleTargetData_PerformAction(const int32 
 					SpawnedGRBProjectile->SetInstigator(mOwningHero);
 					SpawnedGRBProjectile->FinishSpawning(PSpawnTrans);
 				}
-				
+
 				// 本地开火特效
 				if (mOwningHero->IsLocallyControlled())
 				{
@@ -2272,4 +2274,3 @@ void UGA_GRBRocketLauncherSecondary::CheckAndSetupCacheables()
 	}
 }
 #pragma endregion
-
