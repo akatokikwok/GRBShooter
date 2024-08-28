@@ -88,7 +88,7 @@ public:
 	virtual class FNetworkPredictionData_Client* GetPredictionData_Client() const override;
 	// ~End Implements
 
-protected:
+public:
 	// Sprint
 	UFUNCTION(BlueprintCallable, Category = "Sprint")
 	void StartSprinting();
