@@ -20,6 +20,11 @@ void AGRBPlayerController::SetHUDReticle(TSubclassOf<UGRBHUDReticle> ReticleClas
 	
 }
 
+void AGRBPlayerController::SetEquippedWeaponStatusText(const FText& StatusText)
+{
+	
+}
+
 void AGRBPlayerController::ShowDamageNumber_Implementation(float DamageAmount, AGRBCharacterBase* TargetCharacter, FGameplayTagContainer DamageNumberTags)
 {
 	

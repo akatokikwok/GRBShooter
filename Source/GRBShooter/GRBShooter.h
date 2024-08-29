@@ -3,6 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GRBShooter.generated.h"
+
+DECLARE_LOG_CATEGORY_EXTERN(LogGRBShooter, Warning, All);
 
 #define COLLISION_PICKUP						ECollisionChannel::ECC_GameTraceChannel4
 
@@ -38,3 +41,24 @@ enum class EGRBAbilityInputID : uint8
 	// 11 Interact
 	Interact			UMETA(DisplayName = "Interact")
 };
+
+UCLASS()
+class GRBSHOOTER_API UGRBStaticLibrary : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	template<typename TEnum>
+	static FString GetEnumValueAsString(const FString& InEnumName, TEnum InEnumValue);
+};
+
+template <typename TEnum>
+FString UGRBStaticLibrary::GetEnumValueAsString(const FString& InEnumName, TEnum InEnumValue)
+{
+	const UEnum* EnumPtr = FindObject<UEnum>(ANY_PACKAGE, *InEnumName, true);
+	if (!EnumPtr)
+	{
+		return FString("InValid");
+	}
+	return EnumPtr->GetNameStringByIndex(static_cast<int32>(InEnumValue));
+}

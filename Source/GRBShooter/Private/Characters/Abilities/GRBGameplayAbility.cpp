@@ -6,6 +6,7 @@
 #include "Abilities/Tasks/AbilityTask_Repeat.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Abilities/Tasks/AbilityTask_WaitInputRelease.h"
+#include "Camera/CameraComponent.h"
 #include "Characters/GRBCharacterBase.h"
 #include "Characters/GRBCharacterMovementComponent.h"
 #include "Characters/Abilities/GRBAbilitySystemComponent.h"
@@ -14,6 +15,7 @@
 #include "Characters/Abilities/GRBTargetType_BaseObj.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_PlayMontageForMeshAndWaitForEvent.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_ServerWaitForClientTargetData.h"
+#include "Characters/Abilities/AbilityTasks/GRBAT_WaitChangeFOV.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_WaitDelayOneFrame.h"
 #include "Characters/Abilities/AbilityTasks/GRBAT_WaitTargetDataUsingActor.h"
 #include "Characters/Heroes/GRBHeroCharacter.h"
@@ -24,6 +26,10 @@
 #include "Weapons/GRBProjectile.h"
 #include "Weapons/GRBWeapon.h"
 #include "UI/GRBHUDReticle.h"
+#include "GRBShooter/GRBShooter.h"
+
+DEFINE_LOG_CATEGORY(LogGRBShooter)
+
 
 
 UGRBGameplayAbility::UGRBGameplayAbility()
@@ -1431,7 +1437,6 @@ void UGA_GRBRocketLauncherPrimaryInstant::HandleTargetData(const FGameplayAbilit
 			PSpawnTrans.SetLocation(SpawnLoc);
 			PSpawnTrans.SetRotation(FQuat(SpawnRot));
 			AGRBProjectile* const SpawnedGRBProjectile = mOwningHero->GetWorld()->SpawnActorDeferred<AGRBProjectile>(GRBProjectileBP, PSpawnTrans, mOwningHero, mOwningHero, ESpawnActorCollisionHandlingMethod::AlwaysSpawn, ESpawnActorScaleMethod::OverrideRootScale);
-			SpawnedGRBProjectile->K2_PrepareWhenSpawned(mOwningHero, GRBGEContainerSpecPak, false, nullptr, mOwningHero);
 			SpawnedGRBProjectile->FinishSpawning(PSpawnTrans);
 		}
 
@@ -2047,7 +2052,7 @@ void UGA_GRBRocketLauncherSecondary::OnManuallyStopRocketSearch(float InTimeHeld
 	// 复位FOV
 	const float& HeroOrigin1PFOV = 90.0f;
 	UGRBAT_WaitChangeFOV* const WaitChangeFOVNode = UGRBAT_WaitChangeFOV::WaitChangeFOV(this, FName("None"), mOwningHero->GetFirstPersonCamera(), HeroOrigin1PFOV, 0.05f, nullptr);
-	WaitChangeFOVNode->OnTargetFOVReached.AddUniqueDynamic(this, &UGA_GRBRocketLauncherSecondary::ManuallyKillInstantGA);
+	WaitChangeFOVNode->GetOnTargetFOVReached().AddUniqueDynamic(this, &UGA_GRBRocketLauncherSecondary::ManuallyKillInstantGA);
 	WaitChangeFOVNode->ReadyForActivation();
 	m1PZoomResetTask = WaitChangeFOVNode;
 
@@ -2243,7 +2248,8 @@ void UGA_GRBRocketLauncherSecondary::PlayFireMontage()
 void UGA_GRBRocketLauncherSecondary::CheckAndSetupCacheables()
 {
 	const ENetRole& NowRole = GetAbilitySystemComponentFromActorInfo()->GetAvatarActor() != nullptr ? GetAvatarActorFromActorInfo()->GetLocalRole() : ENetRole::ROLE_None;
-
+	UE_LOG(LogGRBShooter, Warning, TEXT("[%s] NowRole is [%s]"), *FString(__FUNCTION__), *UGRBStaticLibrary::GetEnumValueAsString<ENetRole>("ENetRole", NowRole));
+	
 	if (!IsValid(mOwningHero))
 	{
 		mOwningHero = Cast<AGRBHeroCharacter>(GetAvatarActorFromActorInfo());

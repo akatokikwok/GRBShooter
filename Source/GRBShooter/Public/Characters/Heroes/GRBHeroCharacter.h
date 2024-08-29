@@ -24,4 +24,13 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
 	class USkeletalMeshComponent* GetFirstPersonMesh() const;
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
+	class UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; };
+
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "GASShooter|GSHeroCharacter")
+	class UCameraComponent* GetThirdPersonCamera() const { return ThirdPersonCamera; }
+
+	UFUNCTION(BlueprintCallable, Category = "GASShooter|GSHeroCharacter")
+	void SetThirdPersonCameraBoom(const float InLength) { ThirdPersonCameraBoom->TargetArmLength = InLength; }
 };
