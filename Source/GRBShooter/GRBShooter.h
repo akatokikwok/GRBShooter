@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "GRBShooter.generated.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogGRBShooter, Warning, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogGRBGameplayAbility, Warning, All);
 
 #define COLLISION_PICKUP						ECollisionChannel::ECC_GameTraceChannel4
 
